@@ -30,6 +30,7 @@ import {
   Tree,
   Timer,
   Scroll,
+  ClockCounterClockwise,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -258,6 +259,9 @@ function App() {
   const [licenseAnalysis, setLicenseAnalysis] = useState<LicenseAnalysis | null>(null);
   const [analyzingLicenses, setAnalyzingLicenses] = useState(false);
 
+  // Recent projects
+  const [recentProjects, setRecentProjects] = useState<string[]>([]);
+
   // Timestamps for cached results
   const [outdatedTimestamp, setOutdatedTimestamp] = useState<number | null>(null);
   const [auditTimestamp, setAuditTimestamp] = useState<number | null>(null);
@@ -287,6 +291,10 @@ function App() {
       setFavorites(new Set(favs));
       const hid = await invoke<string[]>("get_hidden");
       setHidden(new Set(hid));
+
+      // Load recent projects
+      const recent = await invoke<string[]>("get_recent_projects");
+      setRecentProjects(recent);
 
       // Load scan root
       let root = await invoke<string | null>("get_scan_root");
@@ -479,10 +487,22 @@ function App() {
     setCheckingAudit(false);
   };
 
-  const openProjectDetail = (project: Project) => {
+  const openProjectDetail = async (project: Project) => {
     setSelectedProject(project);
     setCommandOutput(null);
     setView("project-detail");
+
+    // Add to recent projects
+    try {
+      await invoke("add_recent_project", { path: project.path });
+      // Update local state
+      setRecentProjects((prev) => {
+        const filtered = prev.filter((p) => p !== project.path);
+        return [project.path, ...filtered].slice(0, 5);
+      });
+    } catch (e) {
+      console.error("Failed to add recent project:", e);
+    }
   };
 
   const runCargoCommand = async (command: string, args: string[] = []) => {
@@ -696,6 +716,28 @@ function App() {
             </div>
           ))}
         </nav>
+        {recentProjects.length > 0 && (
+          <div className="recent-projects">
+            <div className="recent-projects-header">
+              <ClockCounterClockwise size={14} />
+              Recent
+            </div>
+            {recentProjects.map((path) => {
+              const project = projects.find((p) => p.path === path);
+              if (!project) return null;
+              return (
+                <div
+                  key={path}
+                  className="recent-project-item"
+                  onClick={() => openProjectDetail(project)}
+                  title={path}
+                >
+                  {project.name}
+                </div>
+              );
+            })}
+          </div>
+        )}
         {jobs.length > 0 && (
           <div className="job-queue">
             <div className="job-queue-header">
@@ -1537,6 +1579,21 @@ function App() {
             </div>
             <p className="detail-path">{selectedProject.path}</p>
 
+            <div className="project-stats">
+              <div className="stat-card">
+                <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
+                <span className="stat-label">Target Size</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{selectedProject.dep_count}</span>
+                <span className="stat-label">Dependencies</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
+                <span className="stat-label">Last Modified</span>
+              </div>
+            </div>
+
             <div className="command-grid">
               <button
                 onClick={() => runCargoCommand("check", [])}
@@ -1660,21 +1717,6 @@ function App() {
                 </pre>
               </div>
             )}
-
-            <div className="project-stats">
-              <div className="stat-card">
-                <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
-                <span className="stat-label">Target Size</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-value">{selectedProject.dep_count}</span>
-                <span className="stat-label">Dependencies</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
-                <span className="stat-label">Last Modified</span>
-              </div>
-            </div>
           </>
         )}
 

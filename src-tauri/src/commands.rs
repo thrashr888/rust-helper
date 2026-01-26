@@ -39,6 +39,7 @@ pub struct AppConfig {
     pub favorites: Vec<String>,
     pub hidden: Vec<String>,
     pub scan_root: Option<String>,
+    pub recent_projects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -330,6 +331,27 @@ pub fn set_favorite(path: String, is_favorite: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn get_hidden() -> Vec<String> {
     load_config().hidden
+}
+
+#[tauri::command]
+pub fn get_recent_projects() -> Vec<String> {
+    load_config().recent_projects
+}
+
+#[tauri::command]
+pub fn add_recent_project(path: String) -> Result<(), String> {
+    let mut config = load_config();
+
+    // Remove if already exists (will be re-added at front)
+    config.recent_projects.retain(|p| p != &path);
+
+    // Add to front
+    config.recent_projects.insert(0, path);
+
+    // Keep only last 5
+    config.recent_projects.truncate(5);
+
+    save_config(&config)
 }
 
 #[tauri::command]
