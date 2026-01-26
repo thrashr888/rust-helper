@@ -12,10 +12,10 @@ name = "rust_helper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.3" }
+tauri-build = { version = "2.5.3", features = [] }
 
 [dependencies]
-tauri = { version = "2.9.5" }
+tauri = { version = "2.9.5", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
@@ -25,6 +25,8 @@ tokio = { version = "1", features = ["full"] }
 walkdir = "2"
 toml = "0.8"
 log = "0.4"
+dirs = "5"
+glob = "0.3"
 
 [profile.release]
 strip = true
