@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import AnsiToHtml from "ansi-to-html";
@@ -1703,42 +1703,50 @@ function App() {
                 </div>
                 <div className="search-results-list">
                   {globalSearchResults.map((result, i) => {
-                    // Build highlighted line content using createElement to avoid Prettier adding whitespace
-                    const highlightMatches = (
+                    // Build highlighted HTML string to avoid React whitespace issues
+                    const highlightMatchesHtml = (
                       content: string,
                       matches: SearchMatch[],
-                    ): React.ReactNode => {
-                      if (!matches || matches.length === 0) return content;
+                    ): string => {
+                      if (!matches || matches.length === 0) {
+                        return content
+                          .replace(/&/g, "&amp;")
+                          .replace(/</g, "&lt;")
+                          .replace(/>/g, "&gt;");
+                      }
 
-                      const parts: React.ReactNode[] = [];
+                      let html = "";
                       let lastEnd = 0;
 
-                      matches.forEach((match, idx) => {
-                        // Add text before match
+                      matches.forEach((match) => {
+                        // Add escaped text before match
                         if (match.start > lastEnd) {
-                          parts.push(content.slice(lastEnd, match.start));
+                          html += content
+                            .slice(lastEnd, match.start)
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;");
                         }
-                        // Add highlighted match - use createElement to avoid JSX whitespace
-                        parts.push(
-                          React.createElement(
-                            "mark",
-                            { key: `match-${idx}`, className: "search-highlight" },
-                            content.slice(match.start, match.end),
-                          ),
-                        );
+                        // Add highlighted match
+                        const matchText = content
+                          .slice(match.start, match.end)
+                          .replace(/&/g, "&amp;")
+                          .replace(/</g, "&lt;")
+                          .replace(/>/g, "&gt;");
+                        html += `<mark class="search-highlight">${matchText}</mark>`;
                         lastEnd = match.end;
                       });
 
-                      // Add remaining text
+                      // Add remaining escaped text
                       if (lastEnd < content.length) {
-                        parts.push(content.slice(lastEnd));
+                        html += content
+                          .slice(lastEnd)
+                          .replace(/&/g, "&amp;")
+                          .replace(/</g, "&lt;")
+                          .replace(/>/g, "&gt;");
                       }
 
-                      return React.createElement(
-                        React.Fragment,
-                        null,
-                        ...parts,
-                      );
+                      return html;
                     };
 
                     return (
@@ -1785,8 +1793,12 @@ function App() {
                               {ctx.content}
                             </pre>
                           ))}
-                          {/* prettier-ignore */}
-                          <pre className="search-match-line"><span className="line-number">{result.line_number}</span>{highlightMatches(result.line_content, result.matches)}</pre>
+                          <pre
+                            className="search-match-line"
+                            dangerouslySetInnerHTML={{
+                              __html: `<span class="line-number">${result.line_number}</span>${highlightMatchesHtml(result.line_content, result.matches)}`,
+                            }}
+                          />
                           {result.context_after.map((ctx) => (
                             <pre
                               key={`after-${ctx.line_number}`}
