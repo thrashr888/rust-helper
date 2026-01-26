@@ -621,10 +621,8 @@ function App() {
       }>("cargo-complete", (event) => {
         setIsStreaming(false);
         setRunningCommand(null);
-        // Remove any pending job
-        jobs.forEach((job) => {
-          if (job.id.startsWith("cargo-")) removeJob(job.id);
-        });
+        // Remove any pending cargo jobs
+        setJobs((prev) => prev.filter((job) => !job.id.startsWith("cargo-")));
         // Convert streaming output to command result
         setCommandOutput({
           project_path: event.payload.project_path,
