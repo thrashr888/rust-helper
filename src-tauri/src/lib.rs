@@ -1,8 +1,9 @@
 mod commands;
 
 use commands::{
-    clean_project, clean_projects, get_favorites, get_hidden, scan_projects, set_favorite,
-    set_hidden,
+    check_all_outdated, check_outdated, clean_project, clean_projects, get_default_scan_root,
+    get_favorites, get_hidden, get_scan_root, scan_projects, set_favorite, set_hidden,
+    set_scan_root,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,7 +27,12 @@ pub fn run() {
             get_hidden,
             set_hidden,
             clean_project,
-            clean_projects
+            clean_projects,
+            check_outdated,
+            check_all_outdated,
+            get_scan_root,
+            set_scan_root,
+            get_default_scan_root
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

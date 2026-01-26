@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Folder,
+  FolderOpen,
   Broom,
   Package,
   ShieldCheck,
@@ -17,7 +18,10 @@ import {
   CheckCircle,
   XCircle,
   Spinner,
+  ArrowUp,
+  Warning,
 } from "@phosphor-icons/react";
+import { open } from "@tauri-apps/plugin-dialog";
 
 type View =
   | "projects"
@@ -44,6 +48,21 @@ interface CleanResult {
   path: string;
   name: string;
   freed_bytes: number;
+  success: boolean;
+  error: string | null;
+}
+
+interface OutdatedDep {
+  name: string;
+  current: string;
+  latest: string;
+  kind: string;
+}
+
+interface OutdatedResult {
+  project_path: string;
+  project_name: string;
+  dependencies: OutdatedDep[];
   success: boolean;
   error: string | null;
 }
@@ -81,6 +100,11 @@ function App() {
   const [cleaning, setCleaning] = useState<Set<string>>(new Set());
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [cleaningAll, setCleaningAll] = useState(false);
+  const [outdatedResults, setOutdatedResults] = useState<OutdatedResult[]>([]);
+  const [checkingOutdated, setCheckingOutdated] = useState(false);
+  const [scanRoot, setScanRoot] = useState<string>("");
+  const [scanRootInput, setScanRootInput] = useState<string>("");
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   const loadConfig = async () => {
     try {
@@ -88,16 +112,28 @@ function App() {
       setFavorites(new Set(favs));
       const hid = await invoke<string[]>("get_hidden");
       setHidden(new Set(hid));
+
+      // Load scan root
+      let root = await invoke<string | null>("get_scan_root");
+      if (!root) {
+        root = await invoke<string>("get_default_scan_root");
+      }
+      setScanRoot(root);
+      setScanRootInput(root);
+      setConfigLoaded(true);
     } catch (e) {
       console.error("Failed to load config:", e);
     }
   };
 
-  const scanProjects = async () => {
+  const scanProjects = async (rootPath?: string) => {
+    const pathToScan = rootPath || scanRoot;
+    if (!pathToScan) return;
+
     setScanning(true);
     try {
       const found = await invoke<Project[]>("scan_projects", {
-        rootPath: "/Users/thrashr888/Workspace",
+        rootPath: pathToScan,
       });
       setProjects(found);
     } catch (e) {
@@ -179,10 +215,44 @@ function App() {
     setCleaningAll(false);
   };
 
+  const checkAllOutdated = async () => {
+    setCheckingOutdated(true);
+    setOutdatedResults([]);
+    // Only check non-workspace-member projects
+    const projectsToCheck = projects
+      .filter((p) => !p.is_workspace_member)
+      .map((p) => p.path);
+    try {
+      const results = await invoke<OutdatedResult[]>("check_all_outdated", {
+        projectPaths: projectsToCheck,
+      });
+      setOutdatedResults(results);
+    } catch (e) {
+      console.error("Failed to check outdated:", e);
+    }
+    setCheckingOutdated(false);
+  };
+
+  const saveScanRoot = async () => {
+    if (!scanRootInput) return;
+    try {
+      await invoke("set_scan_root", { path: scanRootInput });
+      setScanRoot(scanRootInput);
+      await scanProjects(scanRootInput);
+    } catch (e) {
+      console.error("Failed to save scan root:", e);
+    }
+  };
+
   useEffect(() => {
     loadConfig();
-    scanProjects();
   }, []);
+
+  useEffect(() => {
+    if (configLoaded && scanRoot) {
+      scanProjects(scanRoot);
+    }
+  }, [configLoaded, scanRoot]);
 
   const filteredAndSortedProjects = useMemo(() => {
     let filtered = projects.filter((p) => {
@@ -241,6 +311,21 @@ function App() {
       .reduce((sum, r) => sum + r.freed_bytes, 0);
   }, [cleanResults]);
 
+  const outdatedStats = useMemo(() => {
+    const projectsWithOutdated = outdatedResults.filter(
+      (r) => r.success && r.dependencies.length > 0
+    );
+    const totalOutdatedDeps = projectsWithOutdated.reduce(
+      (sum, r) => sum + r.dependencies.length,
+      0
+    );
+    return {
+      projectsChecked: outdatedResults.filter((r) => r.success).length,
+      projectsWithOutdated: projectsWithOutdated.length,
+      totalOutdatedDeps,
+    };
+  }, [outdatedResults]);
+
   const navItems = [
     { id: "projects" as View, label: "Projects", icon: Folder },
     { id: "cleanup" as View, label: "Cleanup", icon: Broom },
@@ -285,12 +370,12 @@ function App() {
             ) : projects.length === 0 ? (
               <div className="empty-state">
                 <p>No Rust projects found</p>
-                <button onClick={scanProjects}>Scan ~/Workspace</button>
+                <button onClick={() => scanProjects()}>Scan ~/Workspace</button>
               </div>
             ) : (
               <>
                 <div className="toolbar">
-                  <button onClick={scanProjects}>Rescan</button>
+                  <button onClick={() => scanProjects()}>Rescan</button>
 
                   <div className="sort-control">
                     <label>Sort:</label>
@@ -405,7 +490,7 @@ function App() {
             {projectsWithTargets.length === 0 ? (
               <div className="empty-state">
                 <p>No build artifacts to clean</p>
-                <button onClick={scanProjects}>Rescan Projects</button>
+                <button onClick={() => scanProjects()}>Rescan Projects</button>
               </div>
             ) : (
               <>
@@ -433,7 +518,7 @@ function App() {
                   >
                     Clean Debug Only
                   </button>
-                  <button className="secondary" onClick={scanProjects}>
+                  <button className="secondary" onClick={() => scanProjects()}>
                     Refresh
                   </button>
                 </div>
@@ -500,10 +585,109 @@ function App() {
 
         {view === "dependencies" && (
           <>
-            <h2>Dependencies</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Check for outdated dependencies across projects.
-            </p>
+            <div className="header-row">
+              <h2>Dependencies</h2>
+              {outdatedStats.projectsChecked > 0 && (
+                <span className="total-size">
+                  {outdatedStats.totalOutdatedDeps} outdated in{" "}
+                  {outdatedStats.projectsWithOutdated} projects
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <button onClick={checkAllOutdated} disabled={checkingOutdated}>
+                {checkingOutdated ? (
+                  <>
+                    <Spinner size={16} className="spinning" />
+                    Checking...
+                  </>
+                ) : (
+                  <>
+                    <Package size={16} />
+                    Check All Projects
+                  </>
+                )}
+              </button>
+              <span className="toolbar-note">
+                Requires: cargo install cargo-outdated
+              </span>
+            </div>
+
+            {outdatedResults.length === 0 && !checkingOutdated ? (
+              <div className="empty-state">
+                <p>Click "Check All Projects" to scan for outdated dependencies</p>
+              </div>
+            ) : (
+              <div className="deps-list">
+                {outdatedResults
+                  .filter((r) => r.success)
+                  .sort((a, b) => b.dependencies.length - a.dependencies.length)
+                  .map((result) => (
+                    <div key={result.project_path} className="deps-project">
+                      <div className="deps-project-header">
+                        <div className="deps-project-info">
+                          <span className="deps-project-name">
+                            {result.project_name}
+                          </span>
+                          <span className="deps-project-path">
+                            {result.project_path}
+                          </span>
+                        </div>
+                        <div className="deps-project-count">
+                          {result.dependencies.length === 0 ? (
+                            <span className="deps-uptodate">
+                              <CheckCircle size={16} weight="fill" />
+                              Up to date
+                            </span>
+                          ) : (
+                            <span className="deps-outdated-count">
+                              <Warning size={16} weight="fill" />
+                              {result.dependencies.length} outdated
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {result.dependencies.length > 0 && (
+                        <div className="deps-table">
+                          <div className="deps-table-header">
+                            <span>Package</span>
+                            <span>Current</span>
+                            <span>Latest</span>
+                            <span>Type</span>
+                          </div>
+                          {result.dependencies.map((dep) => (
+                            <div key={dep.name} className="deps-table-row">
+                              <span className="dep-name">{dep.name}</span>
+                              <span className="dep-version dep-current">
+                                {dep.current}
+                              </span>
+                              <span className="dep-version dep-latest">
+                                <ArrowUp size={12} />
+                                {dep.latest}
+                              </span>
+                              <span className="dep-kind">{dep.kind}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                {outdatedResults.filter((r) => !r.success).length > 0 && (
+                  <div className="deps-errors">
+                    <h4>Errors</h4>
+                    {outdatedResults
+                      .filter((r) => !r.success)
+                      .map((result) => (
+                        <div key={result.project_path} className="deps-error-row">
+                          <span>{result.project_name}</span>
+                          <span className="error-text">{result.error}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -537,9 +721,71 @@ function App() {
         {view === "settings" && (
           <>
             <h2>Settings</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Configure scan directories and preferences.
-            </p>
+
+            <div className="settings-section">
+              <h3>Scan Directory</h3>
+              <p className="settings-description">
+                Choose the root folder to scan for Rust projects.
+              </p>
+              <div className="settings-row">
+                <input
+                  type="text"
+                  value={scanRootInput}
+                  onChange={(e) => setScanRootInput(e.target.value)}
+                  className="settings-input"
+                  placeholder="Path to scan..."
+                />
+                <button
+                  className="secondary"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: true,
+                      multiple: false,
+                      defaultPath: scanRootInput || undefined,
+                    });
+                    if (selected) {
+                      setScanRootInput(selected as string);
+                    }
+                  }}
+                >
+                  <FolderOpen size={16} />
+                  Browse
+                </button>
+                <button
+                  onClick={saveScanRoot}
+                  disabled={scanRootInput === scanRoot}
+                >
+                  Save & Rescan
+                </button>
+              </div>
+              {scanRoot && (
+                <p className="settings-current">
+                  Current: {scanRoot}
+                </p>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <h3>Statistics</h3>
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span className="stat-value">{stats.total}</span>
+                  <span className="stat-label">Total Projects</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">{formatBytes(stats.totalSize)}</span>
+                  <span className="stat-label">Total Build Size</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">{favorites.size}</span>
+                  <span className="stat-label">Favorites</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">{hidden.size}</span>
+                  <span className="stat-label">Hidden</span>
+                </div>
+              </div>
+            </div>
           </>
         )}
       </main>

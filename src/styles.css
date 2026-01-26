@@ -428,3 +428,216 @@ button svg {
 .spinning {
   animation: spin 1s linear infinite;
 }
+
+/* Dependencies view */
+.toolbar-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.deps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.deps-project {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.deps-project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deps-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deps-project-name {
+  font-weight: 500;
+}
+
+.deps-project-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.deps-project-count {
+  display: flex;
+  align-items: center;
+}
+
+.deps-uptodate {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: 13px;
+}
+
+.deps-outdated-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--warning);
+  font-size: 13px;
+}
+
+.deps-table {
+  font-size: 13px;
+}
+
+.deps-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.deps-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.deps-table-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.dep-name {
+  font-weight: 500;
+}
+
+.dep-version {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.dep-current {
+  color: var(--text-secondary);
+}
+
+.dep-latest {
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dep-kind {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.deps-errors {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error);
+  border-radius: 8px;
+}
+
+.deps-errors h4 {
+  color: var(--error);
+  margin-bottom: 8px;
+}
+
+.deps-error-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.error-text {
+  color: var(--error);
+  font-size: 12px;
+}
+
+/* Settings view */
+.settings-section {
+  margin-bottom: 32px;
+}
+
+.settings-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.settings-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.settings-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-input {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-current {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.stat-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}

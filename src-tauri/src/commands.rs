@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::SystemTime;
 use walkdir::WalkDir;
 
@@ -37,6 +38,7 @@ struct Workspace {
 pub struct AppConfig {
     pub favorites: Vec<String>,
     pub hidden: Vec<String>,
+    pub scan_root: Option<String>,
 }
 
 fn get_config_path() -> PathBuf {
@@ -360,4 +362,129 @@ pub fn clean_projects(project_paths: Vec<String>, debug_only: bool) -> Vec<Clean
         .into_iter()
         .map(|path| clean_project(path, debug_only))
         .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutdatedDep {
+    pub name: String,
+    pub current: String,
+    pub latest: String,
+    pub kind: String, // "Normal", "Development", "Build"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutdatedResult {
+    pub project_path: String,
+    pub project_name: String,
+    pub dependencies: Vec<OutdatedDep>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoOutdatedOutput {
+    dependencies: Vec<CargoOutdatedDep>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoOutdatedDep {
+    name: String,
+    project: String,
+    latest: String,
+    kind: Option<String>,
+}
+
+#[tauri::command]
+pub fn check_outdated(project_path: String) -> OutdatedResult {
+    let path = PathBuf::from(&project_path);
+    let project_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Run cargo outdated with JSON output
+    let output = Command::new("cargo")
+        .args(["outdated", "--format", "json"])
+        .current_dir(&path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return OutdatedResult {
+                    project_path,
+                    project_name,
+                    dependencies: vec![],
+                    success: false,
+                    error: Some(stderr.to_string()),
+                };
+            }
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            // Parse JSON output
+            match serde_json::from_str::<CargoOutdatedOutput>(&stdout) {
+                Ok(parsed) => {
+                    let dependencies: Vec<OutdatedDep> = parsed
+                        .dependencies
+                        .into_iter()
+                        .filter(|d| d.project != d.latest) // Only include outdated ones
+                        .map(|d| OutdatedDep {
+                            name: d.name,
+                            current: d.project,
+                            latest: d.latest,
+                            kind: d.kind.unwrap_or_else(|| "Normal".to_string()),
+                        })
+                        .collect();
+
+                    OutdatedResult {
+                        project_path,
+                        project_name,
+                        dependencies,
+                        success: true,
+                        error: None,
+                    }
+                }
+                Err(e) => OutdatedResult {
+                    project_path,
+                    project_name,
+                    dependencies: vec![],
+                    success: false,
+                    error: Some(format!("Failed to parse output: {}", e)),
+                },
+            }
+        }
+        Err(e) => OutdatedResult {
+            project_path,
+            project_name,
+            dependencies: vec![],
+            success: false,
+            error: Some(format!("Failed to run cargo outdated: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn check_all_outdated(project_paths: Vec<String>) -> Vec<OutdatedResult> {
+    project_paths.into_iter().map(check_outdated).collect()
+}
+
+#[tauri::command]
+pub fn get_scan_root() -> Option<String> {
+    load_config().scan_root
+}
+
+#[tauri::command]
+pub fn set_scan_root(path: String) -> Result<(), String> {
+    let mut config = load_config();
+    config.scan_root = Some(path);
+    save_config(&config)
+}
+
+#[tauri::command]
+pub fn get_default_scan_root() -> String {
+    dirs::home_dir()
+        .map(|h| h.join("Workspace").to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string())
 }
