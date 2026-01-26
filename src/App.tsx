@@ -2010,7 +2010,7 @@ function App() {
               <>
                 <div className="command-grid">
                   <button
-                    onClick={() => runCargoCommand("check", [])}
+                    onClick={() => runCargoCommand("check", ["--quiet"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
@@ -2022,7 +2022,7 @@ function App() {
                     Check
                   </button>
                   <button
-                    onClick={() => runCargoCommand("build", [])}
+                    onClick={() => runCargoCommand("build", ["--quiet"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
@@ -2034,7 +2034,7 @@ function App() {
                     Build
                   </button>
                   <button
-                    onClick={() => runCargoCommand("build", ["--release"])}
+                    onClick={() => runCargoCommand("build", ["--release", "--quiet"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
@@ -2122,7 +2122,7 @@ function App() {
                     Clippy Fix
                   </button>
                   <button
-                    onClick={() => runCargoCommand("doc", ["--no-deps"])}
+                    onClick={() => runCargoCommand("doc", ["--no-deps", "--quiet"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
