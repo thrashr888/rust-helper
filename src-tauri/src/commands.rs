@@ -1548,3 +1548,105 @@ pub fn save_license_cache(analysis: LicenseAnalysis) -> Result<(), String> {
     cache.license_timestamp = Some(get_current_timestamp());
     save_cache(&cache)
 }
+
+// ============ Required Tools ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolStatus {
+    pub name: String,
+    pub command: String,
+    pub installed: bool,
+    pub install_cmd: String,
+    pub description: String,
+}
+
+fn check_tool_installed(_command: &str, subcommand: &str) -> bool {
+    Command::new("cargo")
+        .args([subcommand, "--version"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn check_required_tools() -> Vec<ToolStatus> {
+    vec![
+        ToolStatus {
+            name: "cargo-outdated".to_string(),
+            command: "outdated".to_string(),
+            installed: check_tool_installed("cargo", "outdated"),
+            install_cmd: "cargo install cargo-outdated".to_string(),
+            description: "Check for outdated dependencies".to_string(),
+        },
+        ToolStatus {
+            name: "cargo-edit".to_string(),
+            command: "upgrade".to_string(),
+            installed: check_tool_installed("cargo", "upgrade"),
+            install_cmd: "cargo install cargo-edit".to_string(),
+            description: "Upgrade dependencies in Cargo.toml".to_string(),
+        },
+        ToolStatus {
+            name: "cargo-audit".to_string(),
+            command: "audit".to_string(),
+            installed: check_tool_installed("cargo", "audit"),
+            install_cmd: "cargo install cargo-audit".to_string(),
+            description: "Security vulnerability scanner".to_string(),
+        },
+        ToolStatus {
+            name: "cargo-license".to_string(),
+            command: "license".to_string(),
+            installed: check_tool_installed("cargo", "license"),
+            install_cmd: "cargo install cargo-license".to_string(),
+            description: "Check dependency licenses".to_string(),
+        },
+    ]
+}
+
+#[tauri::command]
+pub async fn install_tool(install_cmd: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        let parts: Vec<&str> = install_cmd.split_whitespace().collect();
+        if parts.len() < 3 || parts[0] != "cargo" || parts[1] != "install" {
+            return CargoCommandResult {
+                project_path: String::new(),
+                command: install_cmd,
+                success: false,
+                stdout: String::new(),
+                stderr: "Invalid install command".to_string(),
+                exit_code: Some(1),
+            };
+        }
+
+        let output = Command::new("cargo")
+            .args(&parts[1..])
+            .output();
+
+        match output {
+            Ok(output) => CargoCommandResult {
+                project_path: String::new(),
+                command: install_cmd,
+                success: output.status.success(),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                exit_code: output.status.code(),
+            },
+            Err(e) => CargoCommandResult {
+                project_path: String::new(),
+                command: install_cmd,
+                success: false,
+                stdout: String::new(),
+                stderr: e.to_string(),
+                exit_code: Some(1),
+            },
+        }
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: String::new(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task failed".to_string(),
+        exit_code: Some(1),
+    })
+}

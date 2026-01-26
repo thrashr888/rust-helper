@@ -170,6 +170,14 @@ interface ScanCache {
   license_timestamp: number | null;
 }
 
+interface ToolStatus {
+  name: string;
+  command: string;
+  installed: boolean;
+  install_cmd: string;
+  description: string;
+}
+
 interface Project {
   name: string;
   path: string;
@@ -275,6 +283,10 @@ function App() {
   const [licenseAnalysis, setLicenseAnalysis] = useState<LicenseAnalysis | null>(null);
   const [analyzingLicenses, setAnalyzingLicenses] = useState(false);
 
+  // Required tools state
+  const [requiredTools, setRequiredTools] = useState<ToolStatus[]>([]);
+  const [checkingTools, setCheckingTools] = useState(false);
+  const [installingTool, setInstallingTool] = useState<string | null>(null);
 
   // Timestamps for cached results
   const [outdatedTimestamp, setOutdatedTimestamp] = useState<number | null>(null);
@@ -336,6 +348,10 @@ function App() {
         setLicenseAnalysis(cache.license_analysis);
         setLicenseTimestamp(cache.license_timestamp);
       }
+
+      // Check required tools
+      const tools = await invoke<ToolStatus[]>("check_required_tools");
+      setRequiredTools(tools);
 
       setConfigLoaded(true);
     } catch (e) {
@@ -473,6 +489,31 @@ function App() {
     } catch (e) {
       console.error("Failed to save scan root:", e);
     }
+  };
+
+  const checkRequiredTools = async () => {
+    setCheckingTools(true);
+    try {
+      const tools = await invoke<ToolStatus[]>("check_required_tools");
+      setRequiredTools(tools);
+    } catch (e) {
+      console.error("Failed to check tools:", e);
+    }
+    setCheckingTools(false);
+  };
+
+  const installTool = async (tool: ToolStatus) => {
+    setInstallingTool(tool.name);
+    addJob(`install-${tool.name}`, `Installing ${tool.name}...`);
+    try {
+      await invoke<CargoCommandResult>("install_tool", { installCmd: tool.install_cmd });
+      // Refresh tool status
+      await checkRequiredTools();
+    } catch (e) {
+      console.error("Failed to install tool:", e);
+    }
+    removeJob(`install-${tool.name}`);
+    setInstallingTool(null);
   };
 
   const checkAllAudits = async () => {
@@ -776,7 +817,6 @@ function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <h1>Rust Helper</h1>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
             <div key={id}>
@@ -830,7 +870,9 @@ function App() {
                 Projects ({stats.displayed}
                 {stats.displayed !== stats.total && ` of ${stats.total}`})
               </h2>
-              <span className="total-size">{formatBytes(stats.totalSize)} total</span>
+              <span className="total-size">
+                {formatBytes(stats.totalSize)} total
+              </span>
             </div>
 
             {scanning ? (
@@ -863,7 +905,9 @@ function App() {
                     <input
                       type="checkbox"
                       checked={showWorkspaceMembers}
-                      onChange={(e) => setShowWorkspaceMembers(e.target.checked)}
+                      onChange={(e) =>
+                        setShowWorkspaceMembers(e.target.checked)
+                      }
                     />
                     <TreeStructure size={16} />
                     Show workspace members ({stats.workspaceMembers})
@@ -898,7 +942,10 @@ function App() {
                             className={`icon-btn ${
                               favorites.has(project.path) ? "active" : ""
                             }`}
-                            onClick={(e) => { e.stopPropagation(); toggleFavorite(project.path); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(project.path);
+                            }}
                             title={
                               favorites.has(project.path)
                                 ? "Remove from favorites"
@@ -907,14 +954,19 @@ function App() {
                           >
                             <Star
                               size={16}
-                              weight={favorites.has(project.path) ? "fill" : "regular"}
+                              weight={
+                                favorites.has(project.path) ? "fill" : "regular"
+                              }
                             />
                           </button>
                           <button
                             className={`icon-btn ${
                               hidden.has(project.path) ? "active" : ""
                             }`}
-                            onClick={(e) => { e.stopPropagation(); toggleHidden(project.path); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleHidden(project.path);
+                            }}
                             title={hidden.has(project.path) ? "Unhide" : "Hide"}
                           >
                             {hidden.has(project.path) ? (
@@ -933,7 +985,9 @@ function App() {
                         <span className="stat size">
                           {formatBytes(project.target_size)}
                         </span>
-                        <span className="stat deps">{project.dep_count} deps</span>
+                        <span className="stat deps">
+                          {project.dep_count} deps
+                        </span>
                         <span className="stat time">
                           {formatTimeAgo(project.last_modified)}
                         </span>
@@ -1001,10 +1055,13 @@ function App() {
 
                 <div className="cleanup-list">
                   {projectsWithTargets.map((project) => {
-                    const result = cleanResults.find((r) => r.path === project.path);
+                    const result = cleanResults.find(
+                      (r) => r.path === project.path,
+                    );
                     const isCleaningFull = cleaning.has(project.path);
                     const isCleaningDebug = cleaningDebug.has(project.path);
-                    const isCurrentlyCleaning = isCleaningFull || isCleaningDebug;
+                    const isCurrentlyCleaning =
+                      isCleaningFull || isCleaningDebug;
 
                     return (
                       <div key={project.path} className="cleanup-row">
@@ -1025,7 +1082,10 @@ function App() {
                                   : "Clean"}
                               </span>
                             ) : (
-                              <span className="cleanup-error" title={result.error || ""}>
+                              <span
+                                className="cleanup-error"
+                                title={result.error || ""}
+                              >
                                 <XCircle size={16} weight="fill" />
                                 Failed
                               </span>
@@ -1033,20 +1093,34 @@ function App() {
                           ) : isCurrentlyCleaning ? (
                             <span className="cleanup-progress">
                               <Spinner size={16} className="spinning" />
-                              {isCleaningDebug ? "Cleaning debug..." : "Cleaning..."}
+                              {isCleaningDebug
+                                ? "Cleaning debug..."
+                                : "Cleaning..."}
                             </span>
                           ) : (
                             <>
                               <button
                                 className="small"
-                                onClick={() => cleanProject(project.path, false, project.target_size)}
+                                onClick={() =>
+                                  cleanProject(
+                                    project.path,
+                                    false,
+                                    project.target_size,
+                                  )
+                                }
                                 disabled={cleaningAll || cleaningAllDebug}
                               >
                                 Clean
                               </button>
                               <button
                                 className="small secondary"
-                                onClick={() => cleanProject(project.path, true, project.target_size)}
+                                onClick={() =>
+                                  cleanProject(
+                                    project.path,
+                                    true,
+                                    project.target_size,
+                                  )
+                                }
                                 disabled={cleaningAll || cleaningAllDebug}
                               >
                                 Debug
@@ -1071,7 +1145,8 @@ function App() {
                 <span className="total-size">
                   {outdatedStats.totalOutdatedDeps} outdated in{" "}
                   {outdatedStats.projectsWithOutdated} projects
-                  {outdatedTimestamp && ` • Last scan: ${formatTimeAgo(outdatedTimestamp)}`}
+                  {outdatedTimestamp &&
+                    ` • Last scan: ${formatTimeAgo(outdatedTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1090,14 +1165,13 @@ function App() {
                   </>
                 )}
               </button>
-              <span className="toolbar-note">
-                Requires: cargo install cargo-outdated
-              </span>
             </div>
 
             {outdatedResults.length === 0 && !checkingOutdated ? (
               <div className="empty-state">
-                <p>Click "Check All Projects" to scan for outdated dependencies</p>
+                <p>
+                  Click "Check All Projects" to scan for outdated dependencies
+                </p>
               </div>
             ) : (
               <div className="deps-list">
@@ -1105,59 +1179,63 @@ function App() {
                   .filter((r) => r.success)
                   .sort((a, b) => b.dependencies.length - a.dependencies.length)
                   .map((result) => {
-                    const project = projects.find((p) => p.path === result.project_path);
+                    const project = projects.find(
+                      (p) => p.path === result.project_path,
+                    );
                     return (
-                    <div key={result.project_path} className="deps-project">
-                      <div className="deps-project-header">
-                        <div className="deps-project-info">
-                          <span
-                            className="deps-project-name clickable-project-name"
-                            onClick={() => project && openProjectDetail(project)}
-                          >
-                            {result.project_name}
-                          </span>
-                          <span className="deps-project-path">
-                            {result.project_path}
-                          </span>
-                        </div>
-                        <div className="deps-project-count">
-                          {result.dependencies.length === 0 ? (
-                            <span className="deps-uptodate">
-                              <CheckCircle size={16} weight="fill" />
-                              Up to date
+                      <div key={result.project_path} className="deps-project">
+                        <div className="deps-project-header">
+                          <div className="deps-project-info">
+                            <span
+                              className="deps-project-name clickable-project-name"
+                              onClick={() =>
+                                project && openProjectDetail(project)
+                              }
+                            >
+                              {result.project_name}
                             </span>
-                          ) : (
-                            <span className="deps-outdated-count">
-                              <Warning size={16} weight="fill" />
-                              {result.dependencies.length} outdated
+                            <span className="deps-project-path">
+                              {result.project_path}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                      {result.dependencies.length > 0 && (
-                        <div className="deps-table">
-                          <div className="deps-table-header">
-                            <span>Package</span>
-                            <span>Current</span>
-                            <span>Latest</span>
-                            <span>Type</span>
                           </div>
-                          {result.dependencies.map((dep) => (
-                            <div key={dep.name} className="deps-table-row">
-                              <span className="dep-name">{dep.name}</span>
-                              <span className="dep-version dep-current">
-                                {dep.current}
+                          <div className="deps-project-count">
+                            {result.dependencies.length === 0 ? (
+                              <span className="deps-uptodate">
+                                <CheckCircle size={16} weight="fill" />
+                                Up to date
                               </span>
-                              <span className="dep-version dep-latest">
-                                <ArrowUp size={12} />
-                                {dep.latest}
+                            ) : (
+                              <span className="deps-outdated-count">
+                                <Warning size={16} weight="fill" />
+                                {result.dependencies.length} outdated
                               </span>
-                              <span className="dep-kind">{dep.kind}</span>
-                            </div>
-                          ))}
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
+                        {result.dependencies.length > 0 && (
+                          <div className="deps-table">
+                            <div className="deps-table-header">
+                              <span>Package</span>
+                              <span>Current</span>
+                              <span>Latest</span>
+                              <span>Type</span>
+                            </div>
+                            {result.dependencies.map((dep) => (
+                              <div key={dep.name} className="deps-table-row">
+                                <span className="dep-name">{dep.name}</span>
+                                <span className="dep-version dep-current">
+                                  {dep.current}
+                                </span>
+                                <span className="dep-version dep-latest">
+                                  <ArrowUp size={12} />
+                                  {dep.latest}
+                                </span>
+                                <span className="dep-kind">{dep.kind}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 {outdatedResults.filter((r) => !r.success).length > 0 && (
@@ -1166,7 +1244,10 @@ function App() {
                     {outdatedResults
                       .filter((r) => !r.success)
                       .map((result) => (
-                        <div key={result.project_path} className="deps-error-row">
+                        <div
+                          key={result.project_path}
+                          className="deps-error-row"
+                        >
                           <span>{result.project_name}</span>
                           <span className="error-text">{result.error}</span>
                         </div>
@@ -1184,8 +1265,10 @@ function App() {
               <h2>Security Audit</h2>
               {auditStats.projectsChecked > 0 && (
                 <span className="total-size">
-                  {auditStats.totalVulns} vulnerabilities, {auditStats.totalWarnings} warnings
-                  {auditTimestamp && ` • Last scan: ${formatTimeAgo(auditTimestamp)}`}
+                  {auditStats.totalVulns} vulnerabilities,{" "}
+                  {auditStats.totalWarnings} warnings
+                  {auditTimestamp &&
+                    ` • Last scan: ${formatTimeAgo(auditTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1204,89 +1287,120 @@ function App() {
                   </>
                 )}
               </button>
-              <span className="toolbar-note">
-                Requires: cargo install cargo-audit
-              </span>
             </div>
 
             {auditResults.length === 0 && !checkingAudit ? (
               <div className="empty-state">
-                <p>Click "Audit All Projects" to scan for security vulnerabilities</p>
+                <p>
+                  Click "Audit All Projects" to scan for security
+                  vulnerabilities
+                </p>
               </div>
             ) : (
               <div className="deps-list">
                 {auditResults
                   .filter((r) => r.success)
-                  .sort((a, b) => b.vulnerabilities.length - a.vulnerabilities.length)
+                  .sort(
+                    (a, b) =>
+                      b.vulnerabilities.length - a.vulnerabilities.length,
+                  )
                   .map((result) => {
-                    const project = projects.find((p) => p.path === result.project_path);
+                    const project = projects.find(
+                      (p) => p.path === result.project_path,
+                    );
                     return (
-                    <div key={result.project_path} className="deps-project">
-                      <div className="deps-project-header">
-                        <div className="deps-project-info">
-                          <span
-                            className="deps-project-name clickable-project-name"
-                            onClick={() => project && openProjectDetail(project)}
-                          >
-                            {result.project_name}
-                          </span>
-                          <span className="deps-project-path">
-                            {result.project_path}
-                          </span>
-                        </div>
-                        <div className="deps-project-count">
-                          {result.vulnerabilities.length === 0 && result.warnings.length === 0 ? (
-                            <span className="deps-uptodate">
-                              <CheckCircle size={16} weight="fill" />
-                              Secure
+                      <div key={result.project_path} className="deps-project">
+                        <div className="deps-project-header">
+                          <div className="deps-project-info">
+                            <span
+                              className="deps-project-name clickable-project-name"
+                              onClick={() =>
+                                project && openProjectDetail(project)
+                              }
+                            >
+                              {result.project_name}
                             </span>
-                          ) : (
-                            <span className="deps-outdated-count">
-                              <Warning size={16} weight="fill" />
-                              {result.vulnerabilities.length} vulns, {result.warnings.length} warnings
+                            <span className="deps-project-path">
+                              {result.project_path}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                      {result.vulnerabilities.length > 0 && (
-                        <div className="audit-section">
-                          <h4 className="audit-section-title" style={{ color: "var(--error)" }}>
-                            Vulnerabilities
-                          </h4>
-                          {result.vulnerabilities.map((vuln) => (
-                            <div key={vuln.id} className="audit-item vulnerability">
-                              <div className="audit-item-header">
-                                <span className="audit-id">{vuln.id}</span>
-                                <span className="audit-pkg">{vuln.package}@{vuln.version}</span>
-                              </div>
-                              <p className="audit-title">{vuln.title}</p>
-                              {vuln.url && (
-                                <a href={vuln.url} target="_blank" rel="noopener noreferrer" className="audit-link">
-                                  View Advisory
-                                </a>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {result.warnings.length > 0 && (
-                        <div className="audit-section">
-                          <h4 className="audit-section-title" style={{ color: "var(--warning)" }}>
-                            Warnings ({result.warnings.length})
-                          </h4>
-                          <div className="audit-warnings-summary">
-                            {result.warnings.slice(0, 5).map((warn) => (
-                              <span key={warn.advisory_id} className="audit-warning-badge" title={warn.title}>
-                                {warn.package} ({warn.kind})
+                          </div>
+                          <div className="deps-project-count">
+                            {result.vulnerabilities.length === 0 &&
+                            result.warnings.length === 0 ? (
+                              <span className="deps-uptodate">
+                                <CheckCircle size={16} weight="fill" />
+                                Secure
                               </span>
-                            ))}
-                            {result.warnings.length > 5 && (
-                              <span className="audit-warning-badge">+{result.warnings.length - 5} more</span>
+                            ) : (
+                              <span className="deps-outdated-count">
+                                <Warning size={16} weight="fill" />
+                                {result.vulnerabilities.length} vulns,{" "}
+                                {result.warnings.length} warnings
+                              </span>
                             )}
                           </div>
                         </div>
-                      )}
-                    </div>
+                        {result.vulnerabilities.length > 0 && (
+                          <div className="audit-section">
+                            <h4
+                              className="audit-section-title"
+                              style={{ color: "var(--error)" }}
+                            >
+                              Vulnerabilities
+                            </h4>
+                            {result.vulnerabilities.map((vuln) => (
+                              <div
+                                key={vuln.id}
+                                className="audit-item vulnerability"
+                              >
+                                <div className="audit-item-header">
+                                  <span className="audit-id">{vuln.id}</span>
+                                  <span className="audit-pkg">
+                                    {vuln.package}@{vuln.version}
+                                  </span>
+                                </div>
+                                <p className="audit-title">{vuln.title}</p>
+                                {vuln.url && (
+                                  <a
+                                    href={vuln.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="audit-link"
+                                  >
+                                    View Advisory
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {result.warnings.length > 0 && (
+                          <div className="audit-section">
+                            <h4
+                              className="audit-section-title"
+                              style={{ color: "var(--warning)" }}
+                            >
+                              Warnings ({result.warnings.length})
+                            </h4>
+                            <div className="audit-warnings-summary">
+                              {result.warnings.slice(0, 5).map((warn) => (
+                                <span
+                                  key={warn.advisory_id}
+                                  className="audit-warning-badge"
+                                  title={warn.title}
+                                >
+                                  {warn.package} ({warn.kind})
+                                </span>
+                              ))}
+                              {result.warnings.length > 5 && (
+                                <span className="audit-warning-badge">
+                                  +{result.warnings.length - 5} more
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 {auditResults.filter((r) => !r.success).length > 0 && (
@@ -1295,7 +1409,10 @@ function App() {
                     {auditResults
                       .filter((r) => !r.success)
                       .map((result) => (
-                        <div key={result.project_path} className="deps-error-row">
+                        <div
+                          key={result.project_path}
+                          className="deps-error-row"
+                        >
                           <span>{result.project_name}</span>
                           <span className="error-text">{result.error}</span>
                         </div>
@@ -1313,14 +1430,19 @@ function App() {
               <h2>Toolchain Consistency</h2>
               {toolchainAnalysis && (
                 <span className="total-size">
-                  {toolchainAnalysis.toolchain_groups.length} toolchain versions, {toolchainAnalysis.msrv_groups.length} MSRV versions
-                  {toolchainTimestamp && ` • Last scan: ${formatTimeAgo(toolchainTimestamp)}`}
+                  {toolchainAnalysis.toolchain_groups.length} toolchain
+                  versions, {toolchainAnalysis.msrv_groups.length} MSRV versions
+                  {toolchainTimestamp &&
+                    ` • Last scan: ${formatTimeAgo(toolchainTimestamp)}`}
                 </span>
               )}
             </div>
 
             <div className="toolbar">
-              <button onClick={analyzeToolchains} disabled={analyzingToolchains}>
+              <button
+                onClick={analyzeToolchains}
+                disabled={analyzingToolchains}
+              >
                 {analyzingToolchains ? (
                   <>
                     <Spinner size={16} className="spinning" />
@@ -1337,81 +1459,113 @@ function App() {
 
             {!toolchainAnalysis && !analyzingToolchains ? (
               <div className="empty-state">
-                <p>Click "Analyze Toolchains" to check rust-toolchain.toml files and MSRV settings</p>
+                <p>
+                  Click "Analyze Toolchains" to check rust-toolchain.toml files
+                  and MSRV settings
+                </p>
               </div>
-            ) : toolchainAnalysis && (
-              <>
-                {toolchainAnalysis.has_mismatches && (
-                  <div className="toolchain-warning">
-                    <Warning size={20} weight="fill" />
-                    <span>Toolchain or MSRV mismatches detected across projects</span>
-                  </div>
-                )}
-
-                <div className="analysis-section">
-                  <h3>Toolchain Versions ({toolchainAnalysis.toolchain_groups.length})</h3>
-                  <p className="section-description">
-                    Rust toolchain versions specified in rust-toolchain.toml
-                  </p>
-                  <div className="analysis-list">
-                    {toolchainAnalysis.toolchain_groups.map((group) => (
-                      <div key={group.version} className="analysis-item">
-                        <div className="analysis-item-header">
-                          <span className="version-badge">{group.version}</span>
-                          <span className="analysis-count">{group.projects.length} projects</span>
-                        </div>
-                        <div className="version-projects">
-                          {group.projects.join(", ")}
-                        </div>
-                      </div>
-                    ))}
-                    {toolchainAnalysis.toolchain_groups.length === 0 && (
-                      <p className="no-items">No rust-toolchain.toml files found</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="analysis-section">
-                  <h3>MSRV Settings ({toolchainAnalysis.msrv_groups.length})</h3>
-                  <p className="section-description">
-                    Minimum Supported Rust Version from package.rust-version in Cargo.toml
-                  </p>
-                  <div className="analysis-list">
-                    {toolchainAnalysis.msrv_groups.map((group) => (
-                      <div key={group.version} className="analysis-item">
-                        <div className="analysis-item-header">
-                          <span className="version-badge">{group.version}</span>
-                          <span className="analysis-count">{group.projects.length} projects</span>
-                        </div>
-                        <div className="version-projects">
-                          {group.projects.join(", ")}
-                        </div>
-                      </div>
-                    ))}
-                    {toolchainAnalysis.msrv_groups.length === 0 && (
-                      <p className="no-items">No MSRV settings found</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="analysis-section">
-                  <h3>All Projects</h3>
-                  <div className="toolchain-table">
-                    <div className="toolchain-table-header">
-                      <span>Project</span>
-                      <span>Toolchain</span>
-                      <span>MSRV</span>
+            ) : (
+              toolchainAnalysis && (
+                <>
+                  {toolchainAnalysis.has_mismatches && (
+                    <div className="toolchain-warning">
+                      <Warning size={20} weight="fill" />
+                      <span>
+                        Toolchain or MSRV mismatches detected across projects
+                      </span>
                     </div>
-                    {toolchainAnalysis.projects.map((proj) => (
-                      <div key={proj.project_path} className="toolchain-table-row">
-                        <span className="toolchain-project-name">{proj.project_name}</span>
-                        <span className="toolchain-version">{proj.toolchain || "-"}</span>
-                        <span className="toolchain-version">{proj.msrv || "-"}</span>
-                      </div>
-                    ))}
+                  )}
+
+                  <div className="analysis-section">
+                    <h3>
+                      Toolchain Versions (
+                      {toolchainAnalysis.toolchain_groups.length})
+                    </h3>
+                    <p className="section-description">
+                      Rust toolchain versions specified in rust-toolchain.toml
+                    </p>
+                    <div className="analysis-list">
+                      {toolchainAnalysis.toolchain_groups.map((group) => (
+                        <div key={group.version} className="analysis-item">
+                          <div className="analysis-item-header">
+                            <span className="version-badge">
+                              {group.version}
+                            </span>
+                            <span className="analysis-count">
+                              {group.projects.length} projects
+                            </span>
+                          </div>
+                          <div className="version-projects">
+                            {group.projects.join(", ")}
+                          </div>
+                        </div>
+                      ))}
+                      {toolchainAnalysis.toolchain_groups.length === 0 && (
+                        <p className="no-items">
+                          No rust-toolchain.toml files found
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
+
+                  <div className="analysis-section">
+                    <h3>
+                      MSRV Settings ({toolchainAnalysis.msrv_groups.length})
+                    </h3>
+                    <p className="section-description">
+                      Minimum Supported Rust Version from package.rust-version
+                      in Cargo.toml
+                    </p>
+                    <div className="analysis-list">
+                      {toolchainAnalysis.msrv_groups.map((group) => (
+                        <div key={group.version} className="analysis-item">
+                          <div className="analysis-item-header">
+                            <span className="version-badge">
+                              {group.version}
+                            </span>
+                            <span className="analysis-count">
+                              {group.projects.length} projects
+                            </span>
+                          </div>
+                          <div className="version-projects">
+                            {group.projects.join(", ")}
+                          </div>
+                        </div>
+                      ))}
+                      {toolchainAnalysis.msrv_groups.length === 0 && (
+                        <p className="no-items">No MSRV settings found</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="analysis-section">
+                    <h3>All Projects</h3>
+                    <div className="toolchain-table">
+                      <div className="toolchain-table-header">
+                        <span>Project</span>
+                        <span>Toolchain</span>
+                        <span>MSRV</span>
+                      </div>
+                      {toolchainAnalysis.projects.map((proj) => (
+                        <div
+                          key={proj.project_path}
+                          className="toolchain-table-row"
+                        >
+                          <span className="toolchain-project-name">
+                            {proj.project_name}
+                          </span>
+                          <span className="toolchain-version">
+                            {proj.toolchain || "-"}
+                          </span>
+                          <span className="toolchain-version">
+                            {proj.msrv || "-"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )
             )}
           </>
         )}
@@ -1422,8 +1576,10 @@ function App() {
               <h2>Dependency Analysis</h2>
               {depAnalysis && (
                 <span className="total-size">
-                  {depAnalysis.total_unique_deps} deps, {depAnalysis.deps_with_mismatches} with version mismatches
-                  {depAnalysisTimestamp && ` • Last scan: ${formatTimeAgo(depAnalysisTimestamp)}`}
+                  {depAnalysis.total_unique_deps} deps,{" "}
+                  {depAnalysis.deps_with_mismatches} with version mismatches
+                  {depAnalysisTimestamp &&
+                    ` • Last scan: ${formatTimeAgo(depAnalysisTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1446,68 +1602,94 @@ function App() {
 
             {!depAnalysis && !analyzingDeps ? (
               <div className="empty-state">
-                <p>Click "Analyze Dependencies" to scan Cargo.toml files across projects</p>
+                <p>
+                  Click "Analyze Dependencies" to scan Cargo.toml files across
+                  projects
+                </p>
               </div>
-            ) : depAnalysis && (
-              <>
-                <div className="analysis-section">
-                  <h3>Version Mismatches ({depAnalysis.deps_with_mismatches})</h3>
-                  <p className="section-description">
-                    Dependencies with different versions across projects
-                  </p>
-                  <div className="analysis-list">
-                    {depAnalysis.dependencies
-                      .filter((d) => d.versions.length > 1)
-                      .map((dep) => (
-                        <div key={dep.name} className="analysis-item mismatch">
-                          <div className="analysis-item-header">
-                            <span className="analysis-dep-name">{dep.name}</span>
-                            <span className="analysis-count">{dep.project_count} projects</span>
+            ) : (
+              depAnalysis && (
+                <>
+                  <div className="analysis-section">
+                    <h3>
+                      Version Mismatches ({depAnalysis.deps_with_mismatches})
+                    </h3>
+                    <p className="section-description">
+                      Dependencies with different versions across projects
+                    </p>
+                    <div className="analysis-list">
+                      {depAnalysis.dependencies
+                        .filter((d) => d.versions.length > 1)
+                        .map((dep) => (
+                          <div
+                            key={dep.name}
+                            className="analysis-item mismatch"
+                          >
+                            <div className="analysis-item-header">
+                              <span className="analysis-dep-name">
+                                {dep.name}
+                              </span>
+                              <span className="analysis-count">
+                                {dep.project_count} projects
+                              </span>
+                            </div>
+                            <div className="analysis-versions">
+                              {dep.versions.map((v) => (
+                                <div key={v.version} className="version-row">
+                                  <span className="version-badge">
+                                    {v.version}
+                                  </span>
+                                  <span className="version-projects">
+                                    {v.projects.join(", ")}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <div className="analysis-versions">
-                            {dep.versions.map((v) => (
-                              <div key={v.version} className="version-row">
-                                <span className="version-badge">{v.version}</span>
-                                <span className="version-projects">
-                                  {v.projects.join(", ")}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    {depAnalysis.dependencies.filter((d) => d.versions.length > 1).length === 0 && (
-                      <p className="no-items">No version mismatches found</p>
-                    )}
+                        ))}
+                      {depAnalysis.dependencies.filter(
+                        (d) => d.versions.length > 1,
+                      ).length === 0 && (
+                        <p className="no-items">No version mismatches found</p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="analysis-section">
-                  <h3>Most Used Dependencies</h3>
-                  <p className="section-description">
-                    Dependencies ranked by usage across projects
-                  </p>
-                  <div className="analysis-list">
-                    {depAnalysis.dependencies
-                      .slice(0, 30)
-                      .map((dep) => (
-                        <div key={dep.name} className={`analysis-item ${dep.versions.length > 1 ? "has-mismatch" : ""}`}>
+                  <div className="analysis-section">
+                    <h3>Most Used Dependencies</h3>
+                    <p className="section-description">
+                      Dependencies ranked by usage across projects
+                    </p>
+                    <div className="analysis-list">
+                      {depAnalysis.dependencies.slice(0, 30).map((dep) => (
+                        <div
+                          key={dep.name}
+                          className={`analysis-item ${dep.versions.length > 1 ? "has-mismatch" : ""}`}
+                        >
                           <div className="analysis-item-header">
-                            <span className="analysis-dep-name">{dep.name}</span>
-                            <span className="analysis-count">{dep.project_count} projects</span>
+                            <span className="analysis-dep-name">
+                              {dep.name}
+                            </span>
+                            <span className="analysis-count">
+                              {dep.project_count} projects
+                            </span>
                           </div>
                           <div className="analysis-versions inline">
                             {dep.versions.map((v) => (
-                              <span key={v.version} className="version-badge small">
+                              <span
+                                key={v.version}
+                                className="version-badge small"
+                              >
                                 {v.version} ({v.projects.length})
                               </span>
                             ))}
                           </div>
                         </div>
                       ))}
+                    </div>
                   </div>
-                </div>
-              </>
+                </>
+              )
             )}
           </>
         )}
@@ -1518,8 +1700,10 @@ function App() {
               <h2>License Compliance</h2>
               {licenseAnalysis && (
                 <span className="total-size">
-                  {licenseAnalysis.total_packages} packages, {licenseAnalysis.problematic_count} potentially problematic
-                  {licenseTimestamp && ` • Last scan: ${formatTimeAgo(licenseTimestamp)}`}
+                  {licenseAnalysis.total_packages} packages,{" "}
+                  {licenseAnalysis.problematic_count} potentially problematic
+                  {licenseTimestamp &&
+                    ` • Last scan: ${formatTimeAgo(licenseTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1538,119 +1722,160 @@ function App() {
                   </>
                 )}
               </button>
-              <span className="toolbar-note">
-                Requires: cargo install cargo-license
-              </span>
             </div>
 
             {!licenseAnalysis && !analyzingLicenses ? (
               <div className="empty-state">
-                <p>Click "Scan All Licenses" to analyze license usage across projects</p>
+                <p>
+                  Click "Scan All Licenses" to analyze license usage across
+                  projects
+                </p>
               </div>
-            ) : licenseAnalysis && (
-              <>
-                {licenseAnalysis.problematic_count > 0 && (
-                  <div className="toolchain-warning">
-                    <Warning size={20} weight="fill" />
-                    <span>{licenseAnalysis.problematic_count} packages with potentially problematic licenses (GPL, AGPL, etc.)</span>
-                  </div>
-                )}
+            ) : (
+              licenseAnalysis && (
+                <>
+                  {licenseAnalysis.problematic_count > 0 && (
+                    <div className="toolchain-warning">
+                      <Warning size={20} weight="fill" />
+                      <span>
+                        {licenseAnalysis.problematic_count} packages with
+                        potentially problematic licenses (GPL, AGPL, etc.)
+                      </span>
+                    </div>
+                  )}
 
-                <div className="analysis-section">
-                  <h3>Potentially Problematic Licenses</h3>
-                  <p className="section-description">
-                    Licenses that may have viral/copyleft requirements (GPL, AGPL, LGPL, etc.)
-                  </p>
-                  <div className="analysis-list">
-                    {licenseAnalysis.license_groups
-                      .filter((g) => g.is_problematic)
-                      .map((group) => (
-                        <div key={group.license} className="analysis-item mismatch">
-                          <div className="analysis-item-header">
-                            <span className="version-badge problematic">{group.license}</span>
-                            <span className="analysis-count">{group.packages.length} packages</span>
+                  <div className="analysis-section">
+                    <h3>Potentially Problematic Licenses</h3>
+                    <p className="section-description">
+                      Licenses that may have viral/copyleft requirements (GPL,
+                      AGPL, LGPL, etc.)
+                    </p>
+                    <div className="analysis-list">
+                      {licenseAnalysis.license_groups
+                        .filter((g) => g.is_problematic)
+                        .map((group) => (
+                          <div
+                            key={group.license}
+                            className="analysis-item mismatch"
+                          >
+                            <div className="analysis-item-header">
+                              <span className="version-badge problematic">
+                                {group.license}
+                              </span>
+                              <span className="analysis-count">
+                                {group.packages.length} packages
+                              </span>
+                            </div>
+                            <div className="version-projects">
+                              {group.packages.slice(0, 10).join(", ")}
+                              {group.packages.length > 10 &&
+                                ` ...and ${group.packages.length - 10} more`}
+                            </div>
                           </div>
-                          <div className="version-projects">
-                            {group.packages.slice(0, 10).join(", ")}
-                            {group.packages.length > 10 && ` ...and ${group.packages.length - 10} more`}
-                          </div>
-                        </div>
-                      ))}
-                    {licenseAnalysis.license_groups.filter((g) => g.is_problematic).length === 0 && (
-                      <p className="no-items">No problematic licenses found</p>
-                    )}
+                        ))}
+                      {licenseAnalysis.license_groups.filter(
+                        (g) => g.is_problematic,
+                      ).length === 0 && (
+                        <p className="no-items">
+                          No problematic licenses found
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="analysis-section">
-                  <h3>All License Types ({licenseAnalysis.license_groups.length})</h3>
-                  <p className="section-description">
-                    License distribution across all dependencies
-                  </p>
-                  <div className="analysis-list">
-                    {licenseAnalysis.license_groups
-                      .filter((g) => !g.is_problematic)
-                      .slice(0, 30)
-                      .map((group) => (
-                        <div key={group.license} className="analysis-item">
-                          <div className="analysis-item-header">
-                            <span className="version-badge">{group.license}</span>
-                            <span className="analysis-count">{group.packages.length} packages</span>
+                  <div className="analysis-section">
+                    <h3>
+                      All License Types ({licenseAnalysis.license_groups.length}
+                      )
+                    </h3>
+                    <p className="section-description">
+                      License distribution across all dependencies
+                    </p>
+                    <div className="analysis-list">
+                      {licenseAnalysis.license_groups
+                        .filter((g) => !g.is_problematic)
+                        .slice(0, 30)
+                        .map((group) => (
+                          <div key={group.license} className="analysis-item">
+                            <div className="analysis-item-header">
+                              <span className="version-badge">
+                                {group.license}
+                              </span>
+                              <span className="analysis-count">
+                                {group.packages.length} packages
+                              </span>
+                            </div>
+                            <div className="version-projects">
+                              {group.packages.slice(0, 10).join(", ")}
+                              {group.packages.length > 10 &&
+                                ` ...and ${group.packages.length - 10} more`}
+                            </div>
                           </div>
-                          <div className="version-projects">
-                            {group.packages.slice(0, 10).join(", ")}
-                            {group.packages.length > 10 && ` ...and ${group.packages.length - 10} more`}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                    </div>
                   </div>
-                </div>
 
-                <div className="analysis-section">
-                  <h3>Per-Project Results</h3>
-                  <div className="deps-list">
-                    {licenseAnalysis.projects
-                      .filter((p) => p.success)
-                      .sort((a, b) => b.licenses.length - a.licenses.length)
-                      .map((result) => {
-                        const project = projects.find((p) => p.path === result.project_path);
-                        return (
-                        <div key={result.project_path} className="deps-project">
-                          <div className="deps-project-header">
-                            <div className="deps-project-info">
-                              <span
-                                className="deps-project-name clickable-project-name"
-                                onClick={() => project && openProjectDetail(project)}
+                  <div className="analysis-section">
+                    <h3>Per-Project Results</h3>
+                    <div className="deps-list">
+                      {licenseAnalysis.projects
+                        .filter((p) => p.success)
+                        .sort((a, b) => b.licenses.length - a.licenses.length)
+                        .map((result) => {
+                          const project = projects.find(
+                            (p) => p.path === result.project_path,
+                          );
+                          return (
+                            <div
+                              key={result.project_path}
+                              className="deps-project"
+                            >
+                              <div className="deps-project-header">
+                                <div className="deps-project-info">
+                                  <span
+                                    className="deps-project-name clickable-project-name"
+                                    onClick={() =>
+                                      project && openProjectDetail(project)
+                                    }
+                                  >
+                                    {result.project_name}
+                                  </span>
+                                  <span className="deps-project-path">
+                                    {result.project_path}
+                                  </span>
+                                </div>
+                                <div className="deps-project-count">
+                                  <span className="deps-uptodate">
+                                    {result.licenses.length} dependencies
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      {licenseAnalysis.projects.filter((r) => !r.success)
+                        .length > 0 && (
+                        <div className="deps-errors">
+                          <h4>Errors</h4>
+                          {licenseAnalysis.projects
+                            .filter((r) => !r.success)
+                            .map((result) => (
+                              <div
+                                key={result.project_path}
+                                className="deps-error-row"
                               >
-                                {result.project_name}
-                              </span>
-                              <span className="deps-project-path">{result.project_path}</span>
-                            </div>
-                            <div className="deps-project-count">
-                              <span className="deps-uptodate">
-                                {result.licenses.length} dependencies
-                              </span>
-                            </div>
-                          </div>
+                                <span>{result.project_name}</span>
+                                <span className="error-text">
+                                  {result.error}
+                                </span>
+                              </div>
+                            ))}
                         </div>
-                        );
-                      })}
-                    {licenseAnalysis.projects.filter((r) => !r.success).length > 0 && (
-                      <div className="deps-errors">
-                        <h4>Errors</h4>
-                        {licenseAnalysis.projects
-                          .filter((r) => !r.success)
-                          .map((result) => (
-                            <div key={result.project_path} className="deps-error-row">
-                              <span>{result.project_name}</span>
-                              <span className="error-text">{result.error}</span>
-                            </div>
-                          ))}
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
+                </>
+              )
             )}
           </>
         )}
@@ -1670,7 +1895,9 @@ function App() {
 
             <div className="project-stats">
               <div className="stat-card">
-                <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
+                <span className="stat-value">
+                  {formatBytes(selectedProject.target_size)}
+                </span>
                 <span className="stat-label">Target Size</span>
               </div>
               <div className="stat-card">
@@ -1678,7 +1905,9 @@ function App() {
                 <span className="stat-label">Dependencies</span>
               </div>
               <div className="stat-card">
-                <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
+                <span className="stat-value">
+                  {formatTimeAgo(selectedProject.last_modified)}
+                </span>
                 <span className="stat-label">Last Modified</span>
               </div>
             </div>
@@ -1724,128 +1953,189 @@ function App() {
             {projectDetailTab === "commands" && (
               <>
                 <div className="command-grid">
-              <button
-                onClick={() => runCargoCommand("check", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "check" ? <Spinner size={16} className="spinning" /> : <Code size={16} />}
-                Check
-              </button>
-              <button
-                onClick={() => runCargoCommand("build", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "build" ? <Spinner size={16} className="spinning" /> : <Wrench size={16} />}
-                Build
-              </button>
-              <button
-                onClick={() => runCargoCommand("build", ["--release"])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "build" ? <Spinner size={16} className="spinning" /> : <Wrench size={16} />}
-                Build Release
-              </button>
-              <button
-                onClick={() => runCargoCommand("run", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "run" ? <Spinner size={16} className="spinning" /> : <Play size={16} />}
-                Run
-              </button>
-              <button
-                onClick={() => runCargoCommand("test", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "test" ? <Spinner size={16} className="spinning" /> : <Bug size={16} />}
-                Test
-              </button>
-              <button
-                onClick={() => runCargoCommand("fmt", ["--", "--check"])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "fmt" ? <Spinner size={16} className="spinning" /> : <FileCode size={16} />}
-                Fmt Check
-              </button>
-              <button
-                onClick={() => runCargoCommand("clippy", ["--", "-D", "warnings"])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "clippy" ? <Spinner size={16} className="spinning" /> : <Warning size={16} />}
-                Clippy
-              </button>
-              <button
-                onClick={() => runCargoCommand("doc", ["--no-deps"])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "doc" ? <Spinner size={16} className="spinning" /> : <FileCode size={16} />}
-                Doc
-              </button>
-              <button
-                onClick={() => runCargoCommand("update", ["--quiet"])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "update" ? <Spinner size={16} className="spinning" /> : <ArrowsClockwise size={16} />}
-                Update
-              </button>
-              <button
-                onClick={() => runCargoCommand("tree", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "tree" ? <Spinner size={16} className="spinning" /> : <Tree size={16} />}
-                Tree
-              </button>
-              <button
-                onClick={() => runCargoCommand("bench", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "bench" ? <Spinner size={16} className="spinning" /> : <Timer size={16} />}
-                Bench
-              </button>
-              <button
-                onClick={() => runCargoCommand("audit", [])}
-                disabled={runningCommand !== null}
-                className="command-btn"
-              >
-                {runningCommand === "audit" ? <Spinner size={16} className="spinning" /> : <ShieldCheck size={16} />}
-                Audit
-              </button>
-            </div>
-
-            {runningCommand && (
-              <div className="command-running">
-                <Spinner size={20} className="spinning" />
-                Running cargo {runningCommand}...
-              </div>
-            )}
-
-            {commandOutput && (
-              <div className="command-output">
-                <div className="command-output-header">
-                  <span className={`command-status ${commandOutput.success ? "success" : "error"}`}>
-                    {commandOutput.success ? (
-                      <><CheckCircle size={16} weight="fill" /> Success</>
+                  <button
+                    onClick={() => runCargoCommand("check", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "check" ? (
+                      <Spinner size={16} className="spinning" />
                     ) : (
-                      <><XCircle size={16} weight="fill" /> Failed (exit code: {commandOutput.exit_code})</>
+                      <Code size={16} />
                     )}
-                  </span>
-                  <span className="command-name">cargo {commandOutput.command}</span>
+                    Check
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("build", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "build" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Wrench size={16} />
+                    )}
+                    Build
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("build", ["--release"])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "build" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Wrench size={16} />
+                    )}
+                    Build Release
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("run", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "run" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Play size={16} />
+                    )}
+                    Run
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("test", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "test" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Bug size={16} />
+                    )}
+                    Test
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("fmt", ["--", "--check"])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "fmt" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <FileCode size={16} />
+                    )}
+                    Fmt Check
+                  </button>
+                  <button
+                    onClick={() =>
+                      runCargoCommand("clippy", ["--", "-D", "warnings"])
+                    }
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "clippy" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Warning size={16} />
+                    )}
+                    Clippy
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("doc", ["--no-deps"])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "doc" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <FileCode size={16} />
+                    )}
+                    Doc
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("update", ["--quiet"])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "update" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <ArrowsClockwise size={16} />
+                    )}
+                    Update
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("tree", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "tree" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Tree size={16} />
+                    )}
+                    Tree
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("bench", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "bench" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Timer size={16} />
+                    )}
+                    Bench
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("audit", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "audit" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <ShieldCheck size={16} />
+                    )}
+                    Audit
+                  </button>
                 </div>
-                <pre className="command-output-text">
-                  {commandOutput.stdout || commandOutput.stderr || "(no output)"}
-                </pre>
-              </div>
-            )}
+
+                {runningCommand && (
+                  <div className="command-running">
+                    <Spinner size={20} className="spinning" />
+                    Running cargo {runningCommand}...
+                  </div>
+                )}
+
+                {commandOutput && (
+                  <div className="command-output">
+                    <div className="command-output-header">
+                      <span
+                        className={`command-status ${commandOutput.success ? "success" : "error"}`}
+                      >
+                        {commandOutput.success ? (
+                          <>
+                            <CheckCircle size={16} weight="fill" /> Success
+                          </>
+                        ) : (
+                          <>
+                            <XCircle size={16} weight="fill" /> Failed (exit
+                            code: {commandOutput.exit_code})
+                          </>
+                        )}
+                      </span>
+                      <span className="command-name">
+                        cargo {commandOutput.command}
+                      </span>
+                    </div>
+                    <pre className="command-output-text">
+                      {commandOutput.stdout ||
+                        commandOutput.stderr ||
+                        "(no output)"}
+                    </pre>
+                  </div>
+                )}
               </>
             )}
 
@@ -1854,42 +2144,83 @@ function App() {
                 {selectedProject.target_size > 0 ? (
                   <>
                     <p className="tab-description">
-                      Clean build artifacts to free up {formatBytes(selectedProject.target_size)} of disk space.
+                      Clean build artifacts to free up{" "}
+                      {formatBytes(selectedProject.target_size)} of disk space.
                     </p>
                     <div className="cleanup-actions-row">
                       <button
-                        onClick={() => cleanProject(selectedProject.path, false, selectedProject.target_size)}
-                        disabled={cleaning.has(selectedProject.path) || cleaningDebug.has(selectedProject.path)}
+                        onClick={() =>
+                          cleanProject(
+                            selectedProject.path,
+                            false,
+                            selectedProject.target_size,
+                          )
+                        }
+                        disabled={
+                          cleaning.has(selectedProject.path) ||
+                          cleaningDebug.has(selectedProject.path)
+                        }
                       >
                         {cleaning.has(selectedProject.path) ? (
-                          <><Spinner size={16} className="spinning" /> Cleaning...</>
+                          <>
+                            <Spinner size={16} className="spinning" />{" "}
+                            Cleaning...
+                          </>
                         ) : (
-                          <><Trash size={16} /> Clean All ({formatBytes(selectedProject.target_size)})</>
+                          <>
+                            <Trash size={16} /> Clean All (
+                            {formatBytes(selectedProject.target_size)})
+                          </>
                         )}
                       </button>
                       <button
                         className="secondary"
-                        onClick={() => cleanProject(selectedProject.path, true, selectedProject.target_size)}
-                        disabled={cleaning.has(selectedProject.path) || cleaningDebug.has(selectedProject.path)}
+                        onClick={() =>
+                          cleanProject(
+                            selectedProject.path,
+                            true,
+                            selectedProject.target_size,
+                          )
+                        }
+                        disabled={
+                          cleaning.has(selectedProject.path) ||
+                          cleaningDebug.has(selectedProject.path)
+                        }
                       >
                         {cleaningDebug.has(selectedProject.path) ? (
-                          <><Spinner size={16} className="spinning" /> Cleaning Debug...</>
+                          <>
+                            <Spinner size={16} className="spinning" /> Cleaning
+                            Debug...
+                          </>
                         ) : (
                           "Clean Debug Only"
                         )}
                       </button>
                     </div>
-                    {cleanResults.find((r) => r.path === selectedProject.path) && (
+                    {cleanResults.find(
+                      (r) => r.path === selectedProject.path,
+                    ) && (
                       <div className="cleanup-result">
-                        {cleanResults.find((r) => r.path === selectedProject.path)!.success ? (
+                        {cleanResults.find(
+                          (r) => r.path === selectedProject.path,
+                        )!.success ? (
                           <span className="cleanup-success">
                             <CheckCircle size={16} weight="fill" />
-                            Freed {formatBytes(cleanResults.find((r) => r.path === selectedProject.path)!.freed_bytes)}
+                            Freed{" "}
+                            {formatBytes(
+                              cleanResults.find(
+                                (r) => r.path === selectedProject.path,
+                              )!.freed_bytes,
+                            )}
                           </span>
                         ) : (
                           <span className="cleanup-error">
                             <XCircle size={16} weight="fill" />
-                            {cleanResults.find((r) => r.path === selectedProject.path)!.error}
+                            {
+                              cleanResults.find(
+                                (r) => r.path === selectedProject.path,
+                              )!.error
+                            }
                           </span>
                         )}
                       </div>
@@ -1906,43 +2237,72 @@ function App() {
             {projectDetailTab === "dependencies" && (
               <div className="detail-tab-content">
                 <div className="toolbar">
-                  <button onClick={checkProjectOutdated} disabled={checkingProjectOutdated || runningCommand !== null}>
+                  <button
+                    onClick={checkProjectOutdated}
+                    disabled={
+                      checkingProjectOutdated || runningCommand !== null
+                    }
+                  >
                     {checkingProjectOutdated ? (
-                      <><Spinner size={16} className="spinning" /> Checking...</>
+                      <>
+                        <Spinner size={16} className="spinning" /> Checking...
+                      </>
                     ) : (
-                      <><Package size={16} /> Check Outdated</>
+                      <>
+                        <Package size={16} /> Check Outdated
+                      </>
                     )}
                   </button>
                   <button
                     onClick={() => runCargoCommand("upgrade", [])}
-                    disabled={runningCommand !== null || checkingProjectOutdated}
+                    disabled={
+                      runningCommand !== null || checkingProjectOutdated
+                    }
                     title="Updates Cargo.toml to latest versions (cargo upgrade)"
                   >
                     {runningCommand === "upgrade" ? (
-                      <><Spinner size={16} className="spinning" /> Upgrading...</>
+                      <>
+                        <Spinner size={16} className="spinning" /> Upgrading...
+                      </>
                     ) : (
-                      <><ArrowUp size={16} /> Upgrade All</>
+                      <>
+                        <ArrowUp size={16} /> Upgrade All
+                      </>
                     )}
                   </button>
-                  <span className="toolbar-note">Requires: cargo install cargo-outdated cargo-edit</span>
                 </div>
-                {commandOutput && (commandOutput.command === "upgrade" || commandOutput.command.startsWith("upgrade ")) && (
-                  <div className="command-output" style={{ marginBottom: 16 }}>
-                    <div className="command-output-header">
-                      <span className={`command-status ${commandOutput.success ? "success" : "error"}`}>
-                        {commandOutput.success ? (
-                          <><CheckCircle size={16} weight="fill" /> Upgraded</>
-                        ) : (
-                          <><XCircle size={16} weight="fill" /> Failed</>
-                        )}
-                      </span>
-                      <span className="command-name">cargo {commandOutput.command}</span>
+                {commandOutput &&
+                  (commandOutput.command === "upgrade" ||
+                    commandOutput.command.startsWith("upgrade ")) && (
+                    <div
+                      className="command-output"
+                      style={{ marginBottom: 16 }}
+                    >
+                      <div className="command-output-header">
+                        <span
+                          className={`command-status ${commandOutput.success ? "success" : "error"}`}
+                        >
+                          {commandOutput.success ? (
+                            <>
+                              <CheckCircle size={16} weight="fill" /> Upgraded
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={16} weight="fill" /> Failed
+                            </>
+                          )}
+                        </span>
+                        <span className="command-name">
+                          cargo {commandOutput.command}
+                        </span>
+                      </div>
+                      <pre className="command-output-text">
+                        {commandOutput.stdout ||
+                          commandOutput.stderr ||
+                          "(no output)"}
+                      </pre>
                     </div>
-                    <pre className="command-output-text">
-                      {commandOutput.stdout || commandOutput.stderr || "(no output)"}
-                    </pre>
-                  </div>
-                )}
+                  )}
                 {projectOutdated ? (
                   projectOutdated.success ? (
                     projectOutdated.dependencies.length === 0 ? (
@@ -1961,9 +2321,14 @@ function App() {
                             <span></span>
                           </div>
                           {projectOutdated.dependencies.map((dep) => (
-                            <div key={dep.name} className="deps-table-row deps-table-row-with-action">
+                            <div
+                              key={dep.name}
+                              className="deps-table-row deps-table-row-with-action"
+                            >
                               <span className="dep-name">{dep.name}</span>
-                              <span className="dep-version dep-current">{dep.current}</span>
+                              <span className="dep-version dep-current">
+                                {dep.current}
+                              </span>
                               <span className="dep-version dep-latest">
                                 <ArrowUp size={12} />
                                 {dep.latest}
@@ -1973,7 +2338,10 @@ function App() {
                                 <button
                                   className="small"
                                   onClick={() => upgradePackage(dep.name)}
-                                  disabled={runningCommand !== null || upgradingPackage !== null}
+                                  disabled={
+                                    runningCommand !== null ||
+                                    upgradingPackage !== null
+                                  }
                                   title={`Upgrade ${dep.name} to ${dep.latest}`}
                                 >
                                   {upgradingPackage === dep.name ? (
@@ -1987,7 +2355,12 @@ function App() {
                           ))}
                         </div>
                         <p className="deps-help-text">
-                          Click <ArrowUp size={12} style={{ verticalAlign: "middle" }} /> to upgrade individual packages in Cargo.toml
+                          Click{" "}
+                          <ArrowUp
+                            size={12}
+                            style={{ verticalAlign: "middle" }}
+                          />{" "}
+                          to upgrade individual packages in Cargo.toml
                         </p>
                       </>
                     )
@@ -1999,7 +2372,9 @@ function App() {
                   )
                 ) : (
                   <div className="empty-state">
-                    <p>Click "Check Outdated" to scan for outdated dependencies</p>
+                    <p>
+                      Click "Check Outdated" to scan for outdated dependencies
+                    </p>
                   </div>
                 )}
               </div>
@@ -2008,18 +2383,25 @@ function App() {
             {projectDetailTab === "security" && (
               <div className="detail-tab-content">
                 <div className="toolbar">
-                  <button onClick={checkProjectAudit} disabled={checkingProjectAudit}>
+                  <button
+                    onClick={checkProjectAudit}
+                    disabled={checkingProjectAudit}
+                  >
                     {checkingProjectAudit ? (
-                      <><Spinner size={16} className="spinning" /> Auditing...</>
+                      <>
+                        <Spinner size={16} className="spinning" /> Auditing...
+                      </>
                     ) : (
-                      <><ShieldCheck size={16} /> Run Audit</>
+                      <>
+                        <ShieldCheck size={16} /> Run Audit
+                      </>
                     )}
                   </button>
-                  <span className="toolbar-note">Requires: cargo install cargo-audit</span>
                 </div>
                 {projectAudit ? (
                   projectAudit.success ? (
-                    projectAudit.vulnerabilities.length === 0 && projectAudit.warnings.length === 0 ? (
+                    projectAudit.vulnerabilities.length === 0 &&
+                    projectAudit.warnings.length === 0 ? (
                       <div className="deps-status-good">
                         <CheckCircle size={20} weight="fill" />
                         No vulnerabilities found
@@ -2028,18 +2410,32 @@ function App() {
                       <>
                         {projectAudit.vulnerabilities.length > 0 && (
                           <div className="audit-section">
-                            <h4 className="audit-section-title" style={{ color: "var(--error)" }}>
-                              Vulnerabilities ({projectAudit.vulnerabilities.length})
+                            <h4
+                              className="audit-section-title"
+                              style={{ color: "var(--error)" }}
+                            >
+                              Vulnerabilities (
+                              {projectAudit.vulnerabilities.length})
                             </h4>
                             {projectAudit.vulnerabilities.map((vuln) => (
-                              <div key={vuln.id} className="audit-item vulnerability">
+                              <div
+                                key={vuln.id}
+                                className="audit-item vulnerability"
+                              >
                                 <div className="audit-item-header">
                                   <span className="audit-id">{vuln.id}</span>
-                                  <span className="audit-pkg">{vuln.package}@{vuln.version}</span>
+                                  <span className="audit-pkg">
+                                    {vuln.package}@{vuln.version}
+                                  </span>
                                 </div>
                                 <p className="audit-title">{vuln.title}</p>
                                 {vuln.url && (
-                                  <a href={vuln.url} target="_blank" rel="noopener noreferrer" className="audit-link">
+                                  <a
+                                    href={vuln.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="audit-link"
+                                  >
                                     View Advisory
                                   </a>
                                 )}
@@ -2049,12 +2445,19 @@ function App() {
                         )}
                         {projectAudit.warnings.length > 0 && (
                           <div className="audit-section">
-                            <h4 className="audit-section-title" style={{ color: "var(--warning)" }}>
+                            <h4
+                              className="audit-section-title"
+                              style={{ color: "var(--warning)" }}
+                            >
                               Warnings ({projectAudit.warnings.length})
                             </h4>
                             <div className="audit-warnings-summary">
                               {projectAudit.warnings.map((warn) => (
-                                <span key={warn.advisory_id} className="audit-warning-badge" title={warn.title}>
+                                <span
+                                  key={warn.advisory_id}
+                                  className="audit-warning-badge"
+                                  title={warn.title}
+                                >
                                   {warn.package} ({warn.kind})
                                 </span>
                               ))}
@@ -2071,7 +2474,9 @@ function App() {
                   )
                 ) : (
                   <div className="empty-state">
-                    <p>Click "Run Audit" to scan for security vulnerabilities</p>
+                    <p>
+                      Click "Run Audit" to scan for security vulnerabilities
+                    </p>
                   </div>
                 )}
               </div>
@@ -2080,14 +2485,20 @@ function App() {
             {projectDetailTab === "licenses" && (
               <div className="detail-tab-content">
                 <div className="toolbar">
-                  <button onClick={checkProjectLicenses} disabled={checkingProjectLicenses}>
+                  <button
+                    onClick={checkProjectLicenses}
+                    disabled={checkingProjectLicenses}
+                  >
                     {checkingProjectLicenses ? (
-                      <><Spinner size={16} className="spinning" /> Scanning...</>
+                      <>
+                        <Spinner size={16} className="spinning" /> Scanning...
+                      </>
                     ) : (
-                      <><Scroll size={16} /> Scan Licenses</>
+                      <>
+                        <Scroll size={16} /> Scan Licenses
+                      </>
                     )}
                   </button>
-                  <span className="toolbar-note">Requires: cargo install cargo-license</span>
                 </div>
                 {projectLicenses ? (
                   projectLicenses.success ? (
@@ -2107,10 +2518,17 @@ function App() {
                             <span>License</span>
                           </div>
                           {projectLicenses.licenses.map((lic) => (
-                            <div key={`${lic.name}-${lic.version}`} className="license-table-row">
+                            <div
+                              key={`${lic.name}-${lic.version}`}
+                              className="license-table-row"
+                            >
                               <span className="license-name">{lic.name}</span>
-                              <span className="license-version">{lic.version}</span>
-                              <span className={`license-type ${lic.license.toLowerCase().includes("gpl") ? "problematic" : ""}`}>
+                              <span className="license-version">
+                                {lic.version}
+                              </span>
+                              <span
+                                className={`license-type ${lic.license.toLowerCase().includes("gpl") ? "problematic" : ""}`}
+                              >
                                 {lic.license}
                               </span>
                             </div>
@@ -2175,9 +2593,7 @@ function App() {
                 </button>
               </div>
               {scanRoot && (
-                <p className="settings-current">
-                  Current: {scanRoot}
-                </p>
+                <p className="settings-current">Current: {scanRoot}</p>
               )}
             </div>
 
@@ -2189,7 +2605,9 @@ function App() {
                   <span className="stat-label">Total Projects</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-value">{formatBytes(stats.totalSize)}</span>
+                  <span className="stat-value">
+                    {formatBytes(stats.totalSize)}
+                  </span>
                   <span className="stat-label">Total Build Size</span>
                 </div>
                 <div className="stat-card">
@@ -2200,6 +2618,52 @@ function App() {
                   <span className="stat-value">{hidden.size}</span>
                   <span className="stat-label">Hidden</span>
                 </div>
+              </div>
+            </div>
+
+            <div className="settings-section">
+              <h3>Required Tools</h3>
+              <p className="settings-description">
+                These cargo plugins are required for full functionality.
+              </p>
+              <div className="toolbar" style={{ marginBottom: 16 }}>
+                <button onClick={checkRequiredTools} disabled={checkingTools}>
+                  {checkingTools ? (
+                    <><Spinner size={16} className="spinning" /> Checking...</>
+                  ) : (
+                    <><ArrowsClockwise size={16} /> Refresh</>
+                  )}
+                </button>
+              </div>
+              <div className="tools-list">
+                {requiredTools.map((tool) => (
+                  <div key={tool.name} className={`tool-item ${tool.installed ? "installed" : "missing"}`}>
+                    <div className="tool-info">
+                      <span className="tool-name">{tool.name}</span>
+                      <span className="tool-description">{tool.description}</span>
+                    </div>
+                    <div className="tool-status">
+                      {tool.installed ? (
+                        <span className="tool-installed">
+                          <CheckCircle size={16} weight="fill" />
+                          Installed
+                        </span>
+                      ) : (
+                        <button
+                          className="small"
+                          onClick={() => installTool(tool)}
+                          disabled={installingTool !== null}
+                        >
+                          {installingTool === tool.name ? (
+                            <><Spinner size={14} className="spinning" /> Installing...</>
+                          ) : (
+                            <>Install</>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </>
