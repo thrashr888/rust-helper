@@ -99,6 +99,26 @@ interface DepAnalysis {
   deps_with_mismatches: number;
 }
 
+interface ToolchainInfo {
+  project_path: string;
+  project_name: string;
+  toolchain: string | null;
+  msrv: string | null;
+  channel: string | null;
+}
+
+interface ToolchainGroup {
+  version: string;
+  projects: string[];
+}
+
+interface ToolchainAnalysis {
+  projects: ToolchainInfo[];
+  toolchain_groups: ToolchainGroup[];
+  msrv_groups: ToolchainGroup[];
+  has_mismatches: boolean;
+}
+
 interface Project {
   name: string;
   path: string;
@@ -185,6 +205,10 @@ function App() {
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
   const [analyzingDeps, setAnalyzingDeps] = useState(false);
+
+  // Toolchain analysis state
+  const [toolchainAnalysis, setToolchainAnalysis] = useState<ToolchainAnalysis | null>(null);
+  const [analyzingToolchains, setAnalyzingToolchains] = useState(false);
 
   const loadConfig = async () => {
     try {
@@ -383,6 +407,22 @@ function App() {
       console.error("Failed to analyze dependencies:", e);
     }
     setAnalyzingDeps(false);
+  };
+
+  const analyzeToolchains = async () => {
+    setAnalyzingToolchains(true);
+    const projectsToAnalyze = projects
+      .filter((p) => !p.is_workspace_member)
+      .map((p) => p.path);
+    try {
+      const result = await invoke<ToolchainAnalysis>("analyze_toolchains", {
+        projectPaths: projectsToAnalyze,
+      });
+      setToolchainAnalysis(result);
+    } catch (e) {
+      console.error("Failed to analyze toolchains:", e);
+    }
+    setAnalyzingToolchains(false);
   };
 
   useEffect(() => {
@@ -987,10 +1027,109 @@ function App() {
 
         {view === "health" && (
           <>
-            <h2>Health Checks</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Run fmt, clippy, and tests across projects.
-            </p>
+            <div className="header-row">
+              <h2>Toolchain Consistency</h2>
+              {toolchainAnalysis && (
+                <span className="total-size">
+                  {toolchainAnalysis.toolchain_groups.length} toolchain versions, {toolchainAnalysis.msrv_groups.length} MSRV versions
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <button onClick={analyzeToolchains} disabled={analyzingToolchains}>
+                {analyzingToolchains ? (
+                  <>
+                    <Spinner size={16} className="spinning" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Heartbeat size={16} />
+                    Analyze Toolchains
+                  </>
+                )}
+              </button>
+            </div>
+
+            {!toolchainAnalysis && !analyzingToolchains ? (
+              <div className="empty-state">
+                <p>Click "Analyze Toolchains" to check rust-toolchain.toml files and MSRV settings</p>
+              </div>
+            ) : toolchainAnalysis && (
+              <>
+                {toolchainAnalysis.has_mismatches && (
+                  <div className="toolchain-warning">
+                    <Warning size={20} weight="fill" />
+                    <span>Toolchain or MSRV mismatches detected across projects</span>
+                  </div>
+                )}
+
+                <div className="analysis-section">
+                  <h3>Toolchain Versions ({toolchainAnalysis.toolchain_groups.length})</h3>
+                  <p className="section-description">
+                    Rust toolchain versions specified in rust-toolchain.toml
+                  </p>
+                  <div className="analysis-list">
+                    {toolchainAnalysis.toolchain_groups.map((group) => (
+                      <div key={group.version} className="analysis-item">
+                        <div className="analysis-item-header">
+                          <span className="version-badge">{group.version}</span>
+                          <span className="analysis-count">{group.projects.length} projects</span>
+                        </div>
+                        <div className="version-projects">
+                          {group.projects.join(", ")}
+                        </div>
+                      </div>
+                    ))}
+                    {toolchainAnalysis.toolchain_groups.length === 0 && (
+                      <p className="no-items">No rust-toolchain.toml files found</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="analysis-section">
+                  <h3>MSRV Settings ({toolchainAnalysis.msrv_groups.length})</h3>
+                  <p className="section-description">
+                    Minimum Supported Rust Version from package.rust-version in Cargo.toml
+                  </p>
+                  <div className="analysis-list">
+                    {toolchainAnalysis.msrv_groups.map((group) => (
+                      <div key={group.version} className="analysis-item">
+                        <div className="analysis-item-header">
+                          <span className="version-badge">{group.version}</span>
+                          <span className="analysis-count">{group.projects.length} projects</span>
+                        </div>
+                        <div className="version-projects">
+                          {group.projects.join(", ")}
+                        </div>
+                      </div>
+                    ))}
+                    {toolchainAnalysis.msrv_groups.length === 0 && (
+                      <p className="no-items">No MSRV settings found</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="analysis-section">
+                  <h3>All Projects</h3>
+                  <div className="toolchain-table">
+                    <div className="toolchain-table-header">
+                      <span>Project</span>
+                      <span>Toolchain</span>
+                      <span>MSRV</span>
+                    </div>
+                    {toolchainAnalysis.projects.map((proj) => (
+                      <div key={proj.project_path} className="toolchain-table-row">
+                        <span className="toolchain-project-name">{proj.project_name}</span>
+                        <span className="toolchain-version">{proj.toolchain || "-"}</span>
+                        <span className="toolchain-version">{proj.msrv || "-"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 

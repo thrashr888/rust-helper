@@ -941,3 +941,57 @@ button svg {
   padding: 16px;
   text-align: center;
 }
+
+/* Toolchain view */
+.toolchain-warning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  margin-bottom: 24px;
+  color: var(--warning);
+}
+
+.toolchain-table {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.toolchain-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toolchain-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.toolchain-table-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.toolchain-project-name {
+  font-weight: 500;
+}
+
+.toolchain-version {
+  font-family: monospace;
+  color: var(--accent);
+}

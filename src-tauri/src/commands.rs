@@ -934,3 +934,151 @@ pub fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
         deps_with_mismatches,
     }
 }
+
+// ============ Toolchain Analysis ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolchainInfo {
+    pub project_path: String,
+    pub project_name: String,
+    pub toolchain: Option<String>,
+    pub msrv: Option<String>,
+    pub channel: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolchainGroup {
+    pub version: String,
+    pub projects: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolchainAnalysis {
+    pub projects: Vec<ToolchainInfo>,
+    pub toolchain_groups: Vec<ToolchainGroup>,
+    pub msrv_groups: Vec<ToolchainGroup>,
+    pub has_mismatches: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RustToolchainToml {
+    toolchain: Option<RustToolchainSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RustToolchainSpec {
+    channel: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoTomlPackage {
+    package: Option<CargoPackageInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoPackageInfo {
+    #[serde(rename = "rust-version")]
+    rust_version: Option<String>,
+}
+
+#[tauri::command]
+pub fn analyze_toolchains(project_paths: Vec<String>) -> ToolchainAnalysis {
+    use std::collections::HashMap;
+
+    let mut projects: Vec<ToolchainInfo> = Vec::new();
+    let mut toolchain_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut msrv_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for project_path in project_paths {
+        let path = PathBuf::from(&project_path);
+        let project_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| project_path.clone());
+
+        let mut toolchain: Option<String> = None;
+        let mut channel: Option<String> = None;
+        let mut msrv: Option<String> = None;
+
+        // Read rust-toolchain.toml
+        let toolchain_path = path.join("rust-toolchain.toml");
+        if toolchain_path.exists() {
+            if let Ok(content) = fs::read_to_string(&toolchain_path) {
+                if let Ok(parsed) = toml::from_str::<RustToolchainToml>(&content) {
+                    if let Some(spec) = parsed.toolchain {
+                        channel = spec.channel.clone();
+                        toolchain = spec.channel;
+                    }
+                }
+            }
+        }
+
+        // Also check rust-toolchain (plain file)
+        let toolchain_plain = path.join("rust-toolchain");
+        if toolchain.is_none() && toolchain_plain.exists() {
+            if let Ok(content) = fs::read_to_string(&toolchain_plain) {
+                let trimmed = content.trim().to_string();
+                if !trimmed.is_empty() {
+                    toolchain = Some(trimmed.clone());
+                    channel = Some(trimmed);
+                }
+            }
+        }
+
+        // Read Cargo.toml for rust-version (MSRV)
+        let cargo_path = path.join("Cargo.toml");
+        if cargo_path.exists() {
+            if let Ok(content) = fs::read_to_string(&cargo_path) {
+                if let Ok(parsed) = toml::from_str::<CargoTomlPackage>(&content) {
+                    if let Some(pkg) = parsed.package {
+                        msrv = pkg.rust_version;
+                    }
+                }
+            }
+        }
+
+        // Track in groups
+        if let Some(ref tc) = toolchain {
+            toolchain_map
+                .entry(tc.clone())
+                .or_default()
+                .push(project_name.clone());
+        }
+        if let Some(ref m) = msrv {
+            msrv_map
+                .entry(m.clone())
+                .or_default()
+                .push(project_name.clone());
+        }
+
+        projects.push(ToolchainInfo {
+            project_path,
+            project_name,
+            toolchain,
+            msrv,
+            channel,
+        });
+    }
+
+    // Convert maps to groups
+    let mut toolchain_groups: Vec<ToolchainGroup> = toolchain_map
+        .into_iter()
+        .map(|(version, projects)| ToolchainGroup { version, projects })
+        .collect();
+    toolchain_groups.sort_by(|a, b| b.projects.len().cmp(&a.projects.len()));
+
+    let mut msrv_groups: Vec<ToolchainGroup> = msrv_map
+        .into_iter()
+        .map(|(version, projects)| ToolchainGroup { version, projects })
+        .collect();
+    msrv_groups.sort_by(|a, b| b.projects.len().cmp(&a.projects.len()));
+
+    let has_mismatches = toolchain_groups.len() > 1 || msrv_groups.len() > 1;
+
+    ToolchainAnalysis {
+        projects,
+        toolchain_groups,
+        msrv_groups,
+        has_mismatches,
+    }
+}
