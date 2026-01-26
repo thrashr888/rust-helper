@@ -1781,15 +1781,8 @@ function App() {
                               {ctx.content}
                             </pre>
                           ))}
-                          <pre className="search-match-line">
-                            <span className="line-number">
-                              {result.line_number}
-                            </span>
-                            {highlightMatches(
-                              result.line_content,
-                              result.matches,
-                            )}
-                          </pre>
+                          {/* prettier-ignore */}
+                          <pre className="search-match-line"><span className="line-number">{result.line_number}</span>{highlightMatches(result.line_content, result.matches)}</pre>
                           {result.context_after.map((ctx) => (
                             <pre
                               key={`after-${ctx.line_number}`}
