@@ -324,3 +324,107 @@ button.secondary:hover {
 .stat.time {
   color: var(--text-secondary);
 }
+
+/* Cleanup view */
+.cleanup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cleanup-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cleanup-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cleanup-name {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.cleanup-path {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cleanup-size {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--warning);
+  min-width: 80px;
+  text-align: right;
+}
+
+.cleanup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  justify-content: flex-end;
+}
+
+.cleanup-success {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: 13px;
+}
+
+.cleanup-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--error);
+  font-size: 13px;
+}
+
+.cleanup-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+button.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+button svg {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.toolbar button svg {
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}

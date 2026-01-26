@@ -13,6 +13,10 @@ import {
   EyeSlash,
   CaretDown,
   TreeStructure,
+  Trash,
+  CheckCircle,
+  XCircle,
+  Spinner,
 } from "@phosphor-icons/react";
 
 type View =
@@ -34,6 +38,14 @@ interface Project {
   last_modified: number;
   is_workspace_member: boolean;
   workspace_root: string | null;
+}
+
+interface CleanResult {
+  path: string;
+  name: string;
+  freed_bytes: number;
+  success: boolean;
+  error: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -66,6 +78,9 @@ function App() {
   const [sortBy, setSortBy] = useState<SortBy>("lastModified");
   const [showWorkspaceMembers, setShowWorkspaceMembers] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const [cleaning, setCleaning] = useState<Set<string>>(new Set());
+  const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
+  const [cleaningAll, setCleaningAll] = useState(false);
 
   const loadConfig = async () => {
     try {
@@ -127,6 +142,43 @@ function App() {
     }
   };
 
+  const cleanProject = async (projectPath: string, debugOnly: boolean = false) => {
+    setCleaning((prev) => new Set(prev).add(projectPath));
+    try {
+      const result = await invoke<CleanResult>("clean_project", {
+        projectPath,
+        debugOnly,
+      });
+      setCleanResults((prev) => [...prev.filter((r) => r.path !== projectPath), result]);
+      // Refresh project list to update sizes
+      await scanProjects();
+    } catch (e) {
+      console.error("Failed to clean project:", e);
+    }
+    setCleaning((prev) => {
+      const next = new Set(prev);
+      next.delete(projectPath);
+      return next;
+    });
+  };
+
+  const cleanAllProjects = async (debugOnly: boolean = false) => {
+    setCleaningAll(true);
+    setCleanResults([]);
+    const projectsToClean = projectsWithTargets.map((p) => p.path);
+    try {
+      const results = await invoke<CleanResult[]>("clean_projects", {
+        projectPaths: projectsToClean,
+        debugOnly,
+      });
+      setCleanResults(results);
+      await scanProjects();
+    } catch (e) {
+      console.error("Failed to clean projects:", e);
+    }
+    setCleaningAll(false);
+  };
+
   useEffect(() => {
     loadConfig();
     scanProjects();
@@ -172,6 +224,22 @@ function App() {
     const totalSize = projects.reduce((sum, p) => sum + p.target_size, 0);
     return { total, workspaceMembers, displayed, totalSize };
   }, [projects, filteredAndSortedProjects]);
+
+  const projectsWithTargets = useMemo(() => {
+    return projects
+      .filter((p) => p.target_size > 0)
+      .sort((a, b) => b.target_size - a.target_size);
+  }, [projects]);
+
+  const totalCleanableSize = useMemo(() => {
+    return projectsWithTargets.reduce((sum, p) => sum + p.target_size, 0);
+  }, [projectsWithTargets]);
+
+  const totalFreed = useMemo(() => {
+    return cleanResults
+      .filter((r) => r.success)
+      .reduce((sum, r) => sum + r.freed_bytes, 0);
+  }, [cleanResults]);
 
   const navItems = [
     { id: "projects" as View, label: "Projects", icon: Folder },
@@ -326,10 +394,107 @@ function App() {
 
         {view === "cleanup" && (
           <>
-            <h2>Cleanup</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Clean build artifacts from your Rust projects.
-            </p>
+            <div className="header-row">
+              <h2>Cleanup</h2>
+              <span className="total-size">
+                {formatBytes(totalCleanableSize)} cleanable
+                {totalFreed > 0 && ` | ${formatBytes(totalFreed)} freed`}
+              </span>
+            </div>
+
+            {projectsWithTargets.length === 0 ? (
+              <div className="empty-state">
+                <p>No build artifacts to clean</p>
+                <button onClick={scanProjects}>Rescan Projects</button>
+              </div>
+            ) : (
+              <>
+                <div className="toolbar">
+                  <button
+                    onClick={() => cleanAllProjects(false)}
+                    disabled={cleaningAll}
+                  >
+                    {cleaningAll ? (
+                      <>
+                        <Spinner size={16} className="spinning" />
+                        Cleaning...
+                      </>
+                    ) : (
+                      <>
+                        <Trash size={16} />
+                        Clean All ({formatBytes(totalCleanableSize)})
+                      </>
+                    )}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => cleanAllProjects(true)}
+                    disabled={cleaningAll}
+                  >
+                    Clean Debug Only
+                  </button>
+                  <button className="secondary" onClick={scanProjects}>
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="cleanup-list">
+                  {projectsWithTargets.map((project) => {
+                    const result = cleanResults.find((r) => r.path === project.path);
+                    const isCurrentlyCleaning = cleaning.has(project.path);
+
+                    return (
+                      <div key={project.path} className="cleanup-row">
+                        <div className="cleanup-info">
+                          <span className="cleanup-name">{project.name}</span>
+                          <span className="cleanup-path">{project.path}</span>
+                        </div>
+                        <div className="cleanup-size">
+                          {formatBytes(project.target_size)}
+                        </div>
+                        <div className="cleanup-actions">
+                          {result ? (
+                            result.success ? (
+                              <span className="cleanup-success">
+                                <CheckCircle size={16} weight="fill" />
+                                {result.freed_bytes > 0
+                                  ? `Freed ${formatBytes(result.freed_bytes)}`
+                                  : "Clean"}
+                              </span>
+                            ) : (
+                              <span className="cleanup-error" title={result.error || ""}>
+                                <XCircle size={16} weight="fill" />
+                                Failed
+                              </span>
+                            )
+                          ) : isCurrentlyCleaning ? (
+                            <span className="cleanup-progress">
+                              <Spinner size={16} className="spinning" />
+                              Cleaning...
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                className="small"
+                                onClick={() => cleanProject(project.path, false)}
+                              >
+                                Clean
+                              </button>
+                              <button
+                                className="small secondary"
+                                onClick={() => cleanProject(project.path, true)}
+                              >
+                                Debug
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         )}
 

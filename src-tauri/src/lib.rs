@@ -1,6 +1,9 @@
 mod commands;
 
-use commands::{get_favorites, get_hidden, scan_projects, set_favorite, set_hidden};
+use commands::{
+    clean_project, clean_projects, get_favorites, get_hidden, scan_projects, set_favorite,
+    set_hidden,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,7 +24,9 @@ pub fn run() {
             get_favorites,
             set_favorite,
             get_hidden,
-            set_hidden
+            set_hidden,
+            clean_project,
+            clean_projects
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

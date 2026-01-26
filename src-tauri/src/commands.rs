@@ -288,3 +288,76 @@ pub fn set_hidden(path: String, is_hidden: bool) -> Result<(), String> {
 
     save_config(&config)
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanResult {
+    pub path: String,
+    pub name: String,
+    pub freed_bytes: u64,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn clean_project(project_path: String, debug_only: bool) -> CleanResult {
+    let path = PathBuf::from(&project_path);
+    let target_path = path.join("target");
+
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if !target_path.exists() {
+        return CleanResult {
+            path: project_path,
+            name,
+            freed_bytes: 0,
+            success: true,
+            error: None,
+        };
+    }
+
+    let size_before = get_dir_size(&target_path);
+
+    let result = if debug_only {
+        // Only clean debug directory
+        let debug_path = target_path.join("debug");
+        if debug_path.exists() {
+            fs::remove_dir_all(&debug_path)
+        } else {
+            Ok(())
+        }
+    } else {
+        // Clean entire target directory
+        fs::remove_dir_all(&target_path)
+    };
+
+    match result {
+        Ok(()) => {
+            let size_after = get_dir_size(&target_path);
+            CleanResult {
+                path: project_path,
+                name,
+                freed_bytes: size_before.saturating_sub(size_after),
+                success: true,
+                error: None,
+            }
+        }
+        Err(e) => CleanResult {
+            path: project_path,
+            name,
+            freed_bytes: 0,
+            success: false,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn clean_projects(project_paths: Vec<String>, debug_only: bool) -> Vec<CleanResult> {
+    project_paths
+        .into_iter()
+        .map(|path| clean_project(path, debug_only))
+        .collect()
+}
