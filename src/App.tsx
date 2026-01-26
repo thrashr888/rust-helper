@@ -2496,8 +2496,9 @@ function App() {
             </div>
 
             {projectDetailTab === "commands" && (
-              <>
-                <div className="command-groups">
+              <div className="commands-layout">
+                <div className="commands-panel">
+                  <div className="command-groups">
                   <div className="command-group">
                     <h4 className="command-group-label">Build & Run</h4>
                     <div className="command-grid">
@@ -2745,7 +2746,9 @@ function App() {
                     </div>
                   </div>
                 )}
+                </div>
 
+                <div className="output-panel">
                 {runningCommand && !isStreaming && (
                   <div className="command-running">
                     <Spinner size={20} className="spinning" />
@@ -2818,7 +2821,8 @@ function App() {
                     />
                   </div>
                 )}
-              </>
+                </div>
+              </div>
             )}
 
             {projectDetailTab === "cleanup" && (

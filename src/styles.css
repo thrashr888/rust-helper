@@ -805,48 +805,77 @@ button svg {
   color: var(--text-primary);
 }
 
+/* Commands layout - two columns on wide screens */
+.commands-layout {
+  display: flex;
+  gap: 24px;
+}
+
+.commands-panel {
+  flex: 0 0 auto;
+  min-width: 280px;
+  max-width: 340px;
+}
+
+.output-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* On narrow screens, stack vertically */
+@media (max-width: 900px) {
+  .commands-layout {
+    flex-direction: column;
+  }
+
+  .commands-panel {
+    max-width: none;
+  }
+}
+
 .command-groups {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .command-group {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .command-group-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-secondary);
-  min-width: 90px;
-  flex-shrink: 0;
 }
 
 .command-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
 }
 
 .command-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 12px 16px;
+  gap: 5px;
+  padding: 8px 10px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .command-btn:hover:not(:disabled) {
@@ -876,7 +905,11 @@ button svg {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
 }
 
 .command-output-header {
@@ -915,15 +948,15 @@ button svg {
 }
 
 .command-output-text {
-  padding: 16px;
+  padding: 12px;
   margin: 0;
   font-family: monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 400px;
+  flex: 1;
   overflow-y: auto;
 }
 

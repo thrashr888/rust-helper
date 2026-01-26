@@ -1931,7 +1931,9 @@ pub struct CargoFeatures {
 pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String> {
     let path = PathBuf::from(&project_path).join("Cargo.toml");
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let table: toml::Table = content.parse().map_err(|e: toml::de::Error| e.to_string())?;
+    let table: toml::Table = content
+        .parse()
+        .map_err(|e: toml::de::Error| e.to_string())?;
 
     let mut features = Vec::new();
     let mut default_features = Vec::new();
@@ -2134,13 +2136,19 @@ fn find_parent_workspace(project_path: &PathBuf) -> Option<(String, String)> {
                             for member in members.iter().filter_map(|m| m.as_str()) {
                                 if member.contains('*') {
                                     // Glob pattern
-                                    if let Ok(paths) = glob::glob(&current.join(member).to_string_lossy()) {
+                                    if let Ok(paths) =
+                                        glob::glob(&current.join(member).to_string_lossy())
+                                    {
                                         for path in paths.flatten() {
                                             if path == *project_path {
-                                                let name = current.file_name()
+                                                let name = current
+                                                    .file_name()
                                                     .map(|n| n.to_string_lossy().to_string())
                                                     .unwrap_or_else(|| "workspace".to_string());
-                                                return Some((current.to_string_lossy().to_string(), name));
+                                                return Some((
+                                                    current.to_string_lossy().to_string(),
+                                                    name,
+                                                ));
                                             }
                                         }
                                     }
@@ -2148,7 +2156,8 @@ fn find_parent_workspace(project_path: &PathBuf) -> Option<(String, String)> {
                                     // Direct path
                                     let member_path = current.join(member);
                                     if member_path == *project_path {
-                                        let name = current.file_name()
+                                        let name = current
+                                            .file_name()
                                             .map(|n| n.to_string_lossy().to_string())
                                             .unwrap_or_else(|| "workspace".to_string());
                                         return Some((current.to_string_lossy().to_string(), name));
@@ -2205,7 +2214,9 @@ pub fn get_workspace_info(project_path: String) -> WorkspaceInfo {
                                                     })
                                                     .unwrap_or_else(|| {
                                                         p.file_name()
-                                                            .map(|n| n.to_string_lossy().to_string())
+                                                            .map(|n| {
+                                                                n.to_string_lossy().to_string()
+                                                            })
                                                             .unwrap_or_default()
                                                     });
                                                 Some(WorkspaceMember {
@@ -2463,10 +2474,10 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
 
                             if let Some(lines) = data.get("lines").and_then(|l| l.get("text")) {
                                 let line_content = lines.as_str().unwrap_or("").trim().to_string();
-                                let line_number = data
-                                    .get("line_number")
-                                    .and_then(|n| n.as_u64())
-                                    .unwrap_or(0) as u32;
+                                let line_number =
+                                    data.get("line_number")
+                                        .and_then(|n| n.as_u64())
+                                        .unwrap_or(0) as u32;
 
                                 results.push(SearchResult {
                                     project_path: project_path.to_string_lossy().to_string(),
