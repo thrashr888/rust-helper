@@ -1133,6 +1133,8 @@ function App() {
     setRunningCoverage(true);
     setCoverageError(null);
     setCoverageResult(null);
+    const jobId = `coverage-${Date.now()}`;
+    addJob(jobId, "Running code coverage...");
     try {
       const jsonStr = await invoke<string>("run_cargo_tarpaulin", {
         projectPath: selectedProject.path,
@@ -1192,6 +1194,7 @@ function App() {
       console.error("Failed to run coverage:", e);
       setCoverageError(String(e));
     }
+    removeJob(jobId);
     setRunningCoverage(false);
   };
 
@@ -3292,16 +3295,19 @@ function App() {
                 </div>
 
                 {/* Test Output Section */}
-                {commandOutput &&
+                {(commandOutput &&
                   (commandOutput.command === "test" ||
-                    commandOutput.command === "bench") && (
-                    <div className="test-results">
-                      <div className="test-results-header">
-                        <h4>
-                          {commandOutput.command === "test"
-                            ? "Test Results"
-                            : "Benchmark Results"}
-                        </h4>
+                    commandOutput.command === "bench")) ||
+                (isStreaming &&
+                  (runningCommand === "test" || runningCommand === "bench")) ? (
+                  <div className="test-results">
+                    <div className="test-results-header">
+                      <h4>
+                        {(commandOutput?.command || runningCommand) === "test"
+                          ? "Test Results"
+                          : "Benchmark Results"}
+                      </h4>
+                      {commandOutput && !isStreaming ? (
                         <span
                           className={`test-status-badge ${commandOutput.success ? "passed" : "failed"}`}
                         >
@@ -3315,18 +3321,34 @@ function App() {
                             </>
                           )}
                         </span>
-                      </div>
-                      <pre
-                        className="test-output"
-                        dangerouslySetInnerHTML={{
-                          __html: (commandOutput.stdout || commandOutput.stderr || "(no output)")
-                            .split("\n")
-                            .map((line) => ansiConverter.current.toHtml(line))
-                            .join("\n"),
-                        }}
-                      />
+                      ) : (
+                        <span className="test-status-badge running">
+                          <Spinner size={14} className="spinning" /> Running...
+                        </span>
+                      )}
                     </div>
-                  )}
+                    <pre
+                      className="test-output"
+                      ref={outputRef}
+                      dangerouslySetInnerHTML={{
+                        __html:
+                          streamingOutput.length > 0
+                            ? streamingOutput
+                                .map((line) =>
+                                  ansiConverter.current.toHtml(line),
+                                )
+                                .join("\n")
+                            : commandOutput
+                              ? ansiConverter.current.toHtml(
+                                  commandOutput.stdout ||
+                                    commandOutput.stderr ||
+                                    "(no output)",
+                                )
+                              : "",
+                      }}
+                    />
+                  </div>
+                ) : null}
 
                 {/* Coverage Section */}
                 {coverageError && (
@@ -3359,9 +3381,9 @@ function App() {
                           <div key={i} className="coverage-item">
                             <span
                               className="coverage-file-name"
-                              title={file.path}
+                              title={file.path || "unknown"}
                             >
-                              {file.path.split("/").pop()}
+                              {(file.path || "unknown").split("/").pop()}
                             </span>
                             <div className="coverage-bar-container">
                               <div

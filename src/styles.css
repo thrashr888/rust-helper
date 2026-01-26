@@ -2438,6 +2438,11 @@ button svg {
   color: var(--error);
 }
 
+.test-status-badge.running {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent);
+}
+
 .test-output {
   margin: 0;
   padding: 16px 20px;

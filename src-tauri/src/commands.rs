@@ -3012,40 +3012,45 @@ pub async fn analyze_bloat(project_path: String, release: bool) -> Result<BloatA
 
 #[tauri::command]
 pub async fn run_cargo_tarpaulin(project_path: String) -> Result<String, String> {
-    // Check if cargo-tarpaulin is installed
-    let check = Command::new("cargo")
-        .args(["tarpaulin", "--version"])
-        .output();
+    // Run blocking command in a separate thread to avoid blocking the event loop
+    tokio::task::spawn_blocking(move || {
+        // Check if cargo-tarpaulin is installed
+        let check = Command::new("cargo")
+            .args(["tarpaulin", "--version"])
+            .output();
 
-    if check.is_err() || !check.unwrap().status.success() {
-        return Err(
-            "cargo-tarpaulin is not installed. Install with: cargo install cargo-tarpaulin"
-                .to_string(),
-        );
-    }
-
-    // Run tarpaulin
-    let output = Command::new("cargo")
-        .args(["tarpaulin", "--out", "Json", "--output-dir", "target"])
-        .current_dir(&project_path)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        // Read the JSON output file
-        let json_path = PathBuf::from(&project_path)
-            .join("target")
-            .join("tarpaulin-report.json");
-
-        if json_path.exists() {
-            fs::read_to_string(&json_path).map_err(|e| e.to_string())
-        } else {
-            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        if check.is_err() || !check.unwrap().status.success() {
+            return Err(
+                "cargo-tarpaulin is not installed. Install with: cargo install cargo-tarpaulin"
+                    .to_string(),
+            );
         }
-    } else {
-        Err(format!(
-            "cargo-tarpaulin failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
-    }
+
+        // Run tarpaulin
+        let output = Command::new("cargo")
+            .args(["tarpaulin", "--out", "Json", "--output-dir", "target"])
+            .current_dir(&project_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            // Read the JSON output file
+            let json_path = PathBuf::from(&project_path)
+                .join("target")
+                .join("tarpaulin-report.json");
+
+            if json_path.exists() {
+                fs::read_to_string(&json_path).map_err(|e| e.to_string())
+            } else {
+                Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            }
+        } else {
+            Err(format!(
+                "cargo-tarpaulin failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
