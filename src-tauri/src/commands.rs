@@ -2888,124 +2888,114 @@ pub struct BloatAnalysis {
 
 #[tauri::command]
 pub async fn analyze_bloat(project_path: String, release: bool) -> Result<BloatAnalysis, String> {
-    // First check if cargo-bloat is installed
-    let check = Command::new("cargo")
-        .args(["bloat", "--version"])
-        .output();
+    tokio::task::spawn_blocking(move || {
+        // First check if cargo-bloat is installed
+        let check = Command::new("cargo")
+            .args(["bloat", "--version"])
+            .output();
 
-    if check.is_err() || !check.unwrap().status.success() {
-        return Err("cargo-bloat is not installed. Install with: cargo install cargo-bloat".to_string());
-    }
+        if check.is_err() || !check.unwrap().status.success() {
+            return Err(
+                "cargo-bloat is not installed. Install with: cargo install cargo-bloat".to_string(),
+            );
+        }
 
-    // Build first if needed
-    let mut build_args = vec!["build"];
-    if release {
-        build_args.push("--release");
-    }
+        // Run cargo-bloat for crates (it builds automatically)
+        let mut bloat_args = vec!["bloat", "--crates", "--message-format", "json", "-n", "50"];
+        if release {
+            bloat_args.push("--release");
+        }
 
-    let build_output = Command::new("cargo")
-        .args(&build_args)
-        .current_dir(&project_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+        let crates_output = Command::new("cargo")
+            .args(&bloat_args)
+            .current_dir(&project_path)
+            .output()
+            .map_err(|e| e.to_string())?;
 
-    if !build_output.status.success() {
-        return Err(format!(
-            "Build failed: {}",
-            String::from_utf8_lossy(&build_output.stderr)
-        ));
-    }
+        if !crates_output.status.success() {
+            return Err(format!(
+                "cargo-bloat failed: {}",
+                String::from_utf8_lossy(&crates_output.stderr)
+            ));
+        }
 
-    // Run cargo-bloat for crates
-    let mut bloat_args = vec!["bloat", "--crates", "--message-format", "json", "-n", "50"];
-    if release {
-        bloat_args.push("--release");
-    }
+        // Parse crates JSON
+        let crates_json: serde_json::Value =
+            serde_json::from_slice(&crates_output.stdout).map_err(|e| e.to_string())?;
 
-    let crates_output = Command::new("cargo")
-        .args(&bloat_args)
-        .current_dir(&project_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+        let file_size = crates_json
+            .get("file-size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let text_size = crates_json
+            .get("text-section-size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
-    if !crates_output.status.success() {
-        return Err(format!(
-            "cargo-bloat failed: {}",
-            String::from_utf8_lossy(&crates_output.stderr)
-        ));
-    }
-
-    // Parse crates JSON
-    let crates_json: serde_json::Value =
-        serde_json::from_slice(&crates_output.stdout).map_err(|e| e.to_string())?;
-
-    let file_size = crates_json
-        .get("file-size")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let text_size = crates_json
-        .get("text-section-size")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-
-    let crates: Vec<BloatCrate> = crates_json
-        .get("crates")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| {
-                    Some(BloatCrate {
-                        name: c.get("name")?.as_str()?.to_string(),
-                        size: c.get("size")?.as_u64()?,
-                        size_percent: c.get("size-percent")?.as_f64().unwrap_or(0.0),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Run cargo-bloat for functions
-    let mut fn_args = vec!["bloat", "--message-format", "json", "-n", "30"];
-    if release {
-        fn_args.push("--release");
-    }
-
-    let fn_output = Command::new("cargo")
-        .args(&fn_args)
-        .current_dir(&project_path)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    let functions: Vec<BloatFunction> = if fn_output.status.success() {
-        let fn_json: serde_json::Value =
-            serde_json::from_slice(&fn_output.stdout).unwrap_or_default();
-
-        fn_json
-            .get("functions")
+        let crates: Vec<BloatCrate> = crates_json
+            .get("crates")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|f| {
-                        Some(BloatFunction {
-                            name: f.get("name")?.as_str()?.to_string(),
-                            size: f.get("size")?.as_u64()?,
-                            size_percent: f.get("size-percent")?.as_f64().unwrap_or(0.0),
-                            crate_name: f.get("crate").and_then(|c| c.as_str()).map(String::from),
+                    .filter_map(|c| {
+                        Some(BloatCrate {
+                            name: c.get("name")?.as_str()?.to_string(),
+                            size: c.get("size")?.as_u64()?,
+                            size_percent: c.get("size-percent")?.as_f64().unwrap_or(0.0),
                         })
                     })
                     .collect()
             })
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+            .unwrap_or_default();
 
-    Ok(BloatAnalysis {
-        file_size,
-        text_size,
-        crates,
-        functions,
+        // Run cargo-bloat for functions
+        let mut fn_args = vec!["bloat", "--message-format", "json", "-n", "30"];
+        if release {
+            fn_args.push("--release");
+        }
+
+        let fn_output = Command::new("cargo")
+            .args(&fn_args)
+            .current_dir(&project_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let functions: Vec<BloatFunction> = if fn_output.status.success() {
+            let fn_json: serde_json::Value =
+                serde_json::from_slice(&fn_output.stdout).unwrap_or_default();
+
+            fn_json
+                .get("functions")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|f| {
+                            Some(BloatFunction {
+                                name: f.get("name")?.as_str()?.to_string(),
+                                size: f.get("size")?.as_u64()?,
+                                size_percent: f.get("size-percent")?.as_f64().unwrap_or(0.0),
+                                crate_name: f
+                                    .get("crate")
+                                    .and_then(|c| c.as_str())
+                                    .map(String::from),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        Ok(BloatAnalysis {
+            file_size,
+            text_size,
+            crates,
+            functions,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
