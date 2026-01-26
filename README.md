@@ -14,6 +14,8 @@ A macOS app for managing multiple Rust projects. Scan your workspace, clean buil
 - **License Compliance** - Aggregate license usage, flag problematic licenses
 - **Auto-Refresh** - Background monitoring with notifications for new issues
 
+<img width="1958" height="1226" alt="CleanShot 2026-01-25 at 23 38 49@2x" src="https://github.com/user-attachments/assets/550e3dd6-fb73-4c61-9cb3-4038cc953c1d" />
+
 ## Tech Stack
 
 **Frontend:**
