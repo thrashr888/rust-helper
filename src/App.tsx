@@ -2082,6 +2082,18 @@ function App() {
                     Fmt Check
                   </button>
                   <button
+                    onClick={() => runCargoCommand("fmt", [])}
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "fmt" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <FileCode size={16} />
+                    )}
+                    Fmt
+                  </button>
+                  <button
                     onClick={() =>
                       runCargoCommand("clippy", ["--", "-D", "warnings"])
                     }
@@ -2094,6 +2106,20 @@ function App() {
                       <Warning size={16} />
                     )}
                     Clippy
+                  </button>
+                  <button
+                    onClick={() =>
+                      runCargoCommand("clippy", ["--fix", "--allow-dirty", "--allow-staged"])
+                    }
+                    disabled={runningCommand !== null}
+                    className="command-btn"
+                  >
+                    {runningCommand === "clippy" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Warning size={16} />
+                    )}
+                    Clippy Fix
                   </button>
                   <button
                     onClick={() => runCargoCommand("doc", ["--no-deps"])}
