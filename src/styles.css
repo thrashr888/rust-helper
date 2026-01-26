@@ -844,6 +844,10 @@ button svg {
   color: var(--error);
 }
 
+.command-status.running {
+  color: var(--warning);
+}
+
 .command-name {
   font-family: monospace;
   font-size: 12px;

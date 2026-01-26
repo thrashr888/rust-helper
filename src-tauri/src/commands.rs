@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
+use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,7 +238,7 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
     let mut projects = Vec::new();
     let workspace_members = find_workspace_roots(root_path);
 
-    for entry in WalkDir::new(&root_path)
+    for entry in WalkDir::new(root_path)
         .max_depth(4)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -564,11 +566,9 @@ pub fn check_outdated(project_path: String) -> OutdatedResult {
 
 #[tauri::command]
 pub async fn check_all_outdated(project_paths: Vec<String>) -> Vec<OutdatedResult> {
-    tokio::task::spawn_blocking(move || {
-        project_paths.into_iter().map(check_outdated).collect()
-    })
-    .await
-    .unwrap_or_default()
+    tokio::task::spawn_blocking(move || project_paths.into_iter().map(check_outdated).collect())
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -784,11 +784,9 @@ pub fn check_audit(project_path: String) -> AuditResult {
 
 #[tauri::command]
 pub async fn check_all_audits(project_paths: Vec<String>) -> Vec<AuditResult> {
-    tokio::task::spawn_blocking(move || {
-        project_paths.into_iter().map(check_audit).collect()
-    })
-    .await
-    .unwrap_or_default()
+    tokio::task::spawn_blocking(move || project_paths.into_iter().map(check_audit).collect())
+        .await
+        .unwrap_or_default()
 }
 
 // ============ Cargo Commands ============
@@ -852,6 +850,121 @@ pub async fn run_cargo_command(
             stderr: "Task panicked".to_string(),
             exit_code: None,
         })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandOutputEvent {
+    pub line: String,
+    pub stream: String, // "stdout" or "stderr"
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandCompleteEvent {
+    pub project_path: String,
+    pub command: String,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+}
+
+#[tauri::command]
+pub async fn run_cargo_command_streaming(
+    app: AppHandle,
+    project_path: String,
+    command: String,
+    args: Vec<String>,
+) -> Result<(), String> {
+    let path = PathBuf::from(&project_path);
+    let path_clone = project_path.clone();
+
+    tokio::task::spawn(async move {
+        let mut child = match Command::new("cargo")
+            .arg(&command)
+            .args(&args)
+            .current_dir(&path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = app.emit(
+                    "cargo-output",
+                    CommandOutputEvent {
+                        line: format!("Failed to start command: {}", e),
+                        stream: "stderr".to_string(),
+                    },
+                );
+                let _ = app.emit(
+                    "cargo-complete",
+                    CommandCompleteEvent {
+                        project_path: path_clone,
+                        command,
+                        success: false,
+                        exit_code: None,
+                    },
+                );
+                return;
+            }
+        };
+
+        // Read stdout in a separate thread
+        let stdout = child.stdout.take();
+        let app_stdout = app.clone();
+        let stdout_handle = std::thread::spawn(move || {
+            if let Some(stdout) = stdout {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines().map_while(Result::ok) {
+                    let _ = app_stdout.emit(
+                        "cargo-output",
+                        CommandOutputEvent {
+                            line,
+                            stream: "stdout".to_string(),
+                        },
+                    );
+                }
+            }
+        });
+
+        // Read stderr in a separate thread
+        let stderr = child.stderr.take();
+        let app_stderr = app.clone();
+        let stderr_handle = std::thread::spawn(move || {
+            if let Some(stderr) = stderr {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    let _ = app_stderr.emit(
+                        "cargo-output",
+                        CommandOutputEvent {
+                            line,
+                            stream: "stderr".to_string(),
+                        },
+                    );
+                }
+            }
+        });
+
+        // Wait for process to complete
+        let status = child.wait();
+        let _ = stdout_handle.join();
+        let _ = stderr_handle.join();
+
+        let (success, exit_code) = match status {
+            Ok(status) => (status.success(), status.code()),
+            Err(_) => (false, None),
+        };
+
+        let _ = app.emit(
+            "cargo-complete",
+            CommandCompleteEvent {
+                project_path: path_clone,
+                command,
+                success,
+                exit_code,
+            },
+        );
+    });
+
+    Ok(())
 }
 
 // Convenience commands for common operations - these also run async via spawn_blocking
@@ -1617,9 +1730,7 @@ pub async fn install_tool(install_cmd: String) -> CargoCommandResult {
             };
         }
 
-        let output = Command::new("cargo")
-            .args(&parts[1..])
-            .output();
+        let output = Command::new("cargo").args(&parts[1..]).output();
 
         match output {
             Ok(output) => CargoCommandResult {

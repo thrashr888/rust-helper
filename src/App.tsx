@@ -1,5 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import AnsiToHtml from "ansi-to-html";
+import DOMPurify from "dompurify";
 import {
   Folder,
   FolderOpen,
@@ -261,6 +264,10 @@ function App() {
   const [commandOutput, setCommandOutput] = useState<CargoCommandResult | null>(null);
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
   const [projectDetailTab, setProjectDetailTab] = useState<ProjectDetailTab>("commands");
+  const [streamingOutput, setStreamingOutput] = useState<string[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const ansiConverter = useRef(new AnsiToHtml({ fg: "#d4d4d4", bg: "#1e1e1e" }));
+  const outputRef = useRef<HTMLPreElement>(null);
 
   // Per-project analysis state
   const [projectOutdated, setProjectOutdated] = useState<OutdatedResult | null>(null);
@@ -572,6 +579,55 @@ function App() {
     }
   }, [installQueue.length, isProcessingQueue, installingTools.size]);
 
+  // Listen for streaming command output
+  useEffect(() => {
+    let unlistenOutput: UnlistenFn | null = null;
+    let unlistenComplete: UnlistenFn | null = null;
+
+    const setupListeners = async () => {
+      unlistenOutput = await listen<{ line: string; stream: string }>(
+        "cargo-output",
+        (event) => {
+          setStreamingOutput((prev) => [...prev, event.payload.line]);
+          // Auto-scroll to bottom
+          if (outputRef.current) {
+            outputRef.current.scrollTop = outputRef.current.scrollHeight;
+          }
+        }
+      );
+
+      unlistenComplete = await listen<{
+        project_path: string;
+        command: string;
+        success: boolean;
+        exit_code: number | null;
+      }>("cargo-complete", (event) => {
+        setIsStreaming(false);
+        setRunningCommand(null);
+        // Remove any pending job
+        jobs.forEach((job) => {
+          if (job.id.startsWith("cargo-")) removeJob(job.id);
+        });
+        // Convert streaming output to command result
+        setCommandOutput({
+          project_path: event.payload.project_path,
+          command: event.payload.command,
+          success: event.payload.success,
+          stdout: "", // Output is in streamingOutput
+          stderr: "",
+          exit_code: event.payload.exit_code,
+        });
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      if (unlistenOutput) unlistenOutput();
+      if (unlistenComplete) unlistenComplete();
+    };
+  }, []);
+
   const checkAllAudits = async () => {
     setCheckingAudit(true);
     setAuditResults([]);
@@ -655,24 +711,48 @@ function App() {
     setCheckingProjectLicenses(false);
   };
 
+  // Commands that benefit from streaming output
+  const streamingCommands = ["run", "bench", "test", "audit", "clippy"];
+
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
     setRunningCommand(command);
     setCommandOutput(null);
+    setStreamingOutput([]);
     const jobId = `cargo-${command}-${Date.now()}`;
     addJob(jobId, `cargo ${command}...`);
-    try {
-      const result = await invoke<CargoCommandResult>("run_cargo_command", {
-        projectPath: selectedProject.path,
-        command,
-        args,
-      });
-      setCommandOutput(result);
-    } catch (e) {
-      console.error("Failed to run command:", e);
+
+    // Use streaming for slow commands
+    if (streamingCommands.includes(command)) {
+      setIsStreaming(true);
+      try {
+        await invoke("run_cargo_command_streaming", {
+          projectPath: selectedProject.path,
+          command,
+          args,
+        });
+        // The command completion will be handled by the event listener
+      } catch (e) {
+        console.error("Failed to run streaming command:", e);
+        removeJob(jobId);
+        setRunningCommand(null);
+        setIsStreaming(false);
+      }
+    } else {
+      // Use regular command for fast commands
+      try {
+        const result = await invoke<CargoCommandResult>("run_cargo_command", {
+          projectPath: selectedProject.path,
+          command,
+          args,
+        });
+        setCommandOutput(result);
+      } catch (e) {
+        console.error("Failed to run command:", e);
+      }
+      removeJob(jobId);
+      setRunningCommand(null);
     }
-    removeJob(jobId);
-    setRunningCommand(null);
   };
 
   const upgradePackage = async (packageName: string) => {
@@ -2188,14 +2268,38 @@ function App() {
                   </button>
                 </div>
 
-                {runningCommand && (
+                {runningCommand && !isStreaming && (
                   <div className="command-running">
                     <Spinner size={20} className="spinning" />
                     Running cargo {runningCommand}...
                   </div>
                 )}
 
-                {commandOutput && (
+                {isStreaming && (
+                  <div className="command-output">
+                    <div className="command-output-header">
+                      <span className="command-status running">
+                        <Spinner size={16} className="spinning" /> Running
+                      </span>
+                      <span className="command-name">
+                        cargo {runningCommand}
+                      </span>
+                    </div>
+                    <pre
+                      ref={outputRef}
+                      className="command-output-text streaming"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(
+                          streamingOutput
+                            .map((line) => ansiConverter.current.toHtml(line))
+                            .join("\n") || "(waiting for output...)"
+                        ),
+                      }}
+                    />
+                  </div>
+                )}
+
+                {commandOutput && !isStreaming && (
                   <div className="command-output">
                     <div className="command-output-header">
                       <span
@@ -2216,11 +2320,22 @@ function App() {
                         cargo {commandOutput.command}
                       </span>
                     </div>
-                    <pre className="command-output-text">
-                      {commandOutput.stdout ||
-                        commandOutput.stderr ||
-                        "(no output)"}
-                    </pre>
+                    <pre
+                      className="command-output-text"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(
+                          streamingOutput.length > 0
+                            ? streamingOutput
+                                .map((line) => ansiConverter.current.toHtml(line))
+                                .join("\n")
+                            : ansiConverter.current.toHtml(
+                                commandOutput.stdout ||
+                                  commandOutput.stderr ||
+                                  "(no output)"
+                              )
+                        ),
+                      }}
+                    />
                   </div>
                 )}
               </>
@@ -2383,11 +2498,18 @@ function App() {
                           cargo {commandOutput.command}
                         </span>
                       </div>
-                      <pre className="command-output-text">
-                        {commandOutput.stdout ||
-                          commandOutput.stderr ||
-                          "(no output)"}
-                      </pre>
+                      <pre
+                        className="command-output-text"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(
+                            ansiConverter.current.toHtml(
+                              commandOutput.stdout ||
+                                commandOutput.stderr ||
+                                "(no output)"
+                            )
+                          ),
+                        }}
+                      />
                     </div>
                   )}
                 {projectOutdated ? (

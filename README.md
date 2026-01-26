@@ -37,7 +37,7 @@ A macOS app for managing multiple Rust projects. Scan your workspace, clean buil
 - Node.js (20+)
 - Cargo tools:
   ```bash
-  cargo install cargo-outdated cargo-audit cargo-license
+  cargo install cargo-outdated cargo-audit cargo-license cargo-edit
   ```
 
 ## Development
@@ -53,28 +53,6 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## Architecture
-
-```
-rust-helper/
-├── src/                    # React frontend
-│   ├── components/         # UI components
-│   ├── hooks/              # React hooks for Tauri commands
-│   └── App.tsx             # Main app layout
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs         # Tauri entry point
-│   │   ├── commands/       # Tauri commands (IPC handlers)
-│   │   │   ├── discover.rs # Project scanning
-│   │   │   ├── clean.rs    # Build artifact cleanup
-│   │   │   ├── deps.rs     # Dependency checking
-│   │   │   ├── audit.rs    # Security audits
-│   │   │   └── health.rs   # Health checks
-│   │   └── lib.rs          # Library exports
-│   └── Cargo.toml
-└── package.json
-```
-
 ## How It Works
 
 1. **Scan** - Recursively searches directories for `Cargo.toml` files
@@ -82,17 +60,3 @@ rust-helper/
 3. **Analyze** - Runs cargo subcommands in parallel across projects
 4. **Report** - Aggregates results and displays in the UI
 5. **Act** - User can clean, update, or run checks from the UI
-
-## Project Tracking
-
-This project uses [beads](https://github.com/thrashr888/beads) for issue tracking:
-
-```bash
-bd list              # View all tasks
-bd ready             # See what's ready to work on
-bd show <id>         # View task details
-```
-
-## License
-
-MIT
