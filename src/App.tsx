@@ -2757,13 +2757,6 @@ function App() {
                       </button>
                     )}
                   <h2>{selectedProject.name}</h2>
-                  <button
-                    className="icon-btn"
-                    onClick={openInVSCode}
-                    title="Open in VS Code"
-                  >
-                    <Code size={18} />
-                  </button>
                 </div>
                 <div className="info-row badges-row">
                   {msrvInfo?.edition && (
@@ -2829,6 +2822,13 @@ function App() {
                   >
                     <FolderOpen size={14} />
                     {selectedProject.path}
+                  </button>
+                  <button
+                    className="icon-btn"
+                    onClick={openInVSCode}
+                    title="Open in VS Code"
+                  >
+                    <Code size={16} />
                   </button>
                 </div>
                 {gitInfo?.github_url && (
