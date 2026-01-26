@@ -343,6 +343,8 @@ function App() {
     const setStateFunc = debugOnly ? setCleaningAllDebug : setCleaningAll;
     setStateFunc(true);
     setCleanResults([]);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     const projectsToClean = projectsWithTargets.map((p) => p.path);
     const sizeHints = projectsWithTargets.map((p) => p.target_size);
     try {
@@ -362,6 +364,8 @@ function App() {
   const checkAllOutdated = async () => {
     setCheckingOutdated(true);
     setOutdatedResults([]);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     // Only check non-workspace-member projects
     const projectsToCheck = projects
       .filter((p) => !p.is_workspace_member)
@@ -391,6 +395,8 @@ function App() {
   const checkAllAudits = async () => {
     setCheckingAudit(true);
     setAuditResults([]);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     const projectsToCheck = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -430,6 +436,8 @@ function App() {
 
   const analyzeDependencies = async () => {
     setAnalyzingDeps(true);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -446,6 +454,8 @@ function App() {
 
   const analyzeToolchains = async () => {
     setAnalyzingToolchains(true);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -462,6 +472,8 @@ function App() {
 
   const analyzeLicenses = async () => {
     setAnalyzingLicenses(true);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
