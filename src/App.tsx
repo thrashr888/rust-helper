@@ -150,6 +150,19 @@ interface LicenseAnalysis {
   problematic_count: number;
 }
 
+interface ScanCache {
+  outdated_results: OutdatedResult[] | null;
+  outdated_timestamp: number | null;
+  audit_results: AuditResult[] | null;
+  audit_timestamp: number | null;
+  dep_analysis: DepAnalysis | null;
+  dep_analysis_timestamp: number | null;
+  toolchain_analysis: ToolchainAnalysis | null;
+  toolchain_timestamp: number | null;
+  license_analysis: LicenseAnalysis | null;
+  license_timestamp: number | null;
+}
+
 interface Project {
   name: string;
   path: string;
@@ -245,6 +258,13 @@ function App() {
   const [licenseAnalysis, setLicenseAnalysis] = useState<LicenseAnalysis | null>(null);
   const [analyzingLicenses, setAnalyzingLicenses] = useState(false);
 
+  // Timestamps for cached results
+  const [outdatedTimestamp, setOutdatedTimestamp] = useState<number | null>(null);
+  const [auditTimestamp, setAuditTimestamp] = useState<number | null>(null);
+  const [depAnalysisTimestamp, setDepAnalysisTimestamp] = useState<number | null>(null);
+  const [toolchainTimestamp, setToolchainTimestamp] = useState<number | null>(null);
+  const [licenseTimestamp, setLicenseTimestamp] = useState<number | null>(null);
+
   const loadConfig = async () => {
     try {
       const favs = await invoke<string[]>("get_favorites");
@@ -259,6 +279,30 @@ function App() {
       }
       setScanRoot(root);
       setScanRootInput(root);
+
+      // Load cached scan results
+      const cache = await invoke<ScanCache>("get_cache");
+      if (cache.outdated_results) {
+        setOutdatedResults(cache.outdated_results);
+        setOutdatedTimestamp(cache.outdated_timestamp);
+      }
+      if (cache.audit_results) {
+        setAuditResults(cache.audit_results);
+        setAuditTimestamp(cache.audit_timestamp);
+      }
+      if (cache.dep_analysis) {
+        setDepAnalysis(cache.dep_analysis);
+        setDepAnalysisTimestamp(cache.dep_analysis_timestamp);
+      }
+      if (cache.toolchain_analysis) {
+        setToolchainAnalysis(cache.toolchain_analysis);
+        setToolchainTimestamp(cache.toolchain_timestamp);
+      }
+      if (cache.license_analysis) {
+        setLicenseAnalysis(cache.license_analysis);
+        setLicenseTimestamp(cache.license_timestamp);
+      }
+
       setConfigLoaded(true);
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -375,6 +419,9 @@ function App() {
         projectPaths: projectsToCheck,
       });
       setOutdatedResults(results);
+      // Save to cache
+      await invoke("save_outdated_cache", { results });
+      setOutdatedTimestamp(Math.floor(Date.now() / 1000));
     } catch (e) {
       console.error("Failed to check outdated:", e);
     }
@@ -405,6 +452,9 @@ function App() {
         projectPaths: projectsToCheck,
       });
       setAuditResults(results);
+      // Save to cache
+      await invoke("save_audit_cache", { results });
+      setAuditTimestamp(Math.floor(Date.now() / 1000));
     } catch (e) {
       console.error("Failed to check audits:", e);
     }
@@ -421,6 +471,8 @@ function App() {
     if (!selectedProject) return;
     setRunningCommand(command);
     setCommandOutput(null);
+    // Yield to event loop to allow React to render loading state
+    await new Promise(resolve => setTimeout(resolve, 50));
     try {
       const result = await invoke<CargoCommandResult>("run_cargo_command", {
         projectPath: selectedProject.path,
@@ -446,6 +498,9 @@ function App() {
         projectPaths: projectsToAnalyze,
       });
       setDepAnalysis(result);
+      // Save to cache
+      await invoke("save_dep_analysis_cache", { analysis: result });
+      setDepAnalysisTimestamp(Math.floor(Date.now() / 1000));
     } catch (e) {
       console.error("Failed to analyze dependencies:", e);
     }
@@ -464,6 +519,9 @@ function App() {
         projectPaths: projectsToAnalyze,
       });
       setToolchainAnalysis(result);
+      // Save to cache
+      await invoke("save_toolchain_cache", { analysis: result });
+      setToolchainTimestamp(Math.floor(Date.now() / 1000));
     } catch (e) {
       console.error("Failed to analyze toolchains:", e);
     }
@@ -482,6 +540,9 @@ function App() {
         projectPaths: projectsToAnalyze,
       });
       setLicenseAnalysis(result);
+      // Save to cache
+      await invoke("save_license_cache", { analysis: result });
+      setLicenseTimestamp(Math.floor(Date.now() / 1000));
     } catch (e) {
       console.error("Failed to analyze licenses:", e);
     }
@@ -867,6 +928,7 @@ function App() {
                 <span className="total-size">
                   {outdatedStats.totalOutdatedDeps} outdated in{" "}
                   {outdatedStats.projectsWithOutdated} projects
+                  {outdatedTimestamp && ` • Last scan: ${formatTimeAgo(outdatedTimestamp)}`}
                 </span>
               )}
             </div>
@@ -974,6 +1036,7 @@ function App() {
               {auditStats.projectsChecked > 0 && (
                 <span className="total-size">
                   {auditStats.totalVulns} vulnerabilities, {auditStats.totalWarnings} warnings
+                  {auditTimestamp && ` • Last scan: ${formatTimeAgo(auditTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1096,6 +1159,7 @@ function App() {
               {toolchainAnalysis && (
                 <span className="total-size">
                   {toolchainAnalysis.toolchain_groups.length} toolchain versions, {toolchainAnalysis.msrv_groups.length} MSRV versions
+                  {toolchainTimestamp && ` • Last scan: ${formatTimeAgo(toolchainTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1204,6 +1268,7 @@ function App() {
               {depAnalysis && (
                 <span className="total-size">
                   {depAnalysis.total_unique_deps} deps, {depAnalysis.deps_with_mismatches} with version mismatches
+                  {depAnalysisTimestamp && ` • Last scan: ${formatTimeAgo(depAnalysisTimestamp)}`}
                 </span>
               )}
             </div>
@@ -1299,6 +1364,7 @@ function App() {
               {licenseAnalysis && (
                 <span className="total-size">
                   {licenseAnalysis.total_packages} packages, {licenseAnalysis.problematic_count} potentially problematic
+                  {licenseTimestamp && ` • Last scan: ${formatTimeAgo(licenseTimestamp)}`}
                 </span>
               )}
             </div>

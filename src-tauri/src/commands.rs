@@ -41,11 +41,61 @@ pub struct AppConfig {
     pub scan_root: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScanCache {
+    pub outdated_results: Option<Vec<OutdatedResult>>,
+    pub outdated_timestamp: Option<u64>,
+    pub audit_results: Option<Vec<AuditResult>>,
+    pub audit_timestamp: Option<u64>,
+    pub dep_analysis: Option<DepAnalysis>,
+    pub dep_analysis_timestamp: Option<u64>,
+    pub toolchain_analysis: Option<ToolchainAnalysis>,
+    pub toolchain_timestamp: Option<u64>,
+    pub license_analysis: Option<LicenseAnalysis>,
+    pub license_timestamp: Option<u64>,
+}
+
 fn get_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("rust-helper")
         .join("config.json")
+}
+
+fn get_cache_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("rust-helper")
+        .join("cache.json")
+}
+
+fn load_cache() -> ScanCache {
+    let path = get_cache_path();
+    if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    } else {
+        ScanCache::default()
+    }
+}
+
+fn save_cache(cache: &ScanCache) -> Result<(), String> {
+    let path = get_cache_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn get_current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn load_config() -> AppConfig {
@@ -181,10 +231,9 @@ fn find_workspace_roots(root_path: &str) -> HashSet<PathBuf> {
     workspace_members
 }
 
-#[tauri::command]
-pub fn scan_projects(root_path: String) -> Vec<Project> {
+fn scan_projects_sync(root_path: &str) -> Vec<Project> {
     let mut projects = Vec::new();
-    let workspace_members = find_workspace_roots(&root_path);
+    let workspace_members = find_workspace_roots(root_path);
 
     for entry in WalkDir::new(&root_path)
         .max_depth(4)
@@ -249,6 +298,13 @@ pub fn scan_projects(root_path: String) -> Vec<Project> {
     projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     projects
+}
+
+#[tauri::command]
+pub async fn scan_projects(root_path: String) -> Vec<Project> {
+    tokio::task::spawn_blocking(move || scan_projects_sync(&root_path))
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -485,8 +541,12 @@ pub fn check_outdated(project_path: String) -> OutdatedResult {
 }
 
 #[tauri::command]
-pub fn check_all_outdated(project_paths: Vec<String>) -> Vec<OutdatedResult> {
-    project_paths.into_iter().map(check_outdated).collect()
+pub async fn check_all_outdated(project_paths: Vec<String>) -> Vec<OutdatedResult> {
+    tokio::task::spawn_blocking(move || {
+        project_paths.into_iter().map(check_outdated).collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -701,8 +761,12 @@ pub fn check_audit(project_path: String) -> AuditResult {
 }
 
 #[tauri::command]
-pub fn check_all_audits(project_paths: Vec<String>) -> Vec<AuditResult> {
-    project_paths.into_iter().map(check_audit).collect()
+pub async fn check_all_audits(project_paths: Vec<String>) -> Vec<AuditResult> {
+    tokio::task::spawn_blocking(move || {
+        project_paths.into_iter().map(check_audit).collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 // ============ Cargo Commands ============
@@ -717,8 +781,7 @@ pub struct CargoCommandResult {
     pub exit_code: Option<i32>,
 }
 
-#[tauri::command]
-pub fn run_cargo_command(
+fn run_cargo_command_sync(
     project_path: String,
     command: String,
     args: Vec<String>,
@@ -751,77 +814,205 @@ pub fn run_cargo_command(
     }
 }
 
-// Convenience commands for common operations
 #[tauri::command]
-pub fn run_cargo_fmt_check(project_path: String) -> CargoCommandResult {
-    run_cargo_command(
-        project_path,
-        "fmt".to_string(),
-        vec!["--".to_string(), "--check".to_string()],
-    )
+pub async fn run_cargo_command(
+    project_path: String,
+    command: String,
+    args: Vec<String>,
+) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || run_cargo_command_sync(project_path, command, args))
+        .await
+        .unwrap_or_else(|_| CargoCommandResult {
+            project_path: String::new(),
+            command: String::new(),
+            success: false,
+            stdout: String::new(),
+            stderr: "Task panicked".to_string(),
+            exit_code: None,
+        })
+}
+
+// Convenience commands for common operations - these also run async via spawn_blocking
+#[tauri::command]
+pub async fn run_cargo_fmt_check(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(
+            project_path,
+            "fmt".to_string(),
+            vec!["--".to_string(), "--check".to_string()],
+        )
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "fmt".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_clippy(project_path: String) -> CargoCommandResult {
-    run_cargo_command(
-        project_path,
-        "clippy".to_string(),
-        vec!["--".to_string(), "-D".to_string(), "warnings".to_string()],
-    )
+pub async fn run_cargo_clippy(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(
+            project_path,
+            "clippy".to_string(),
+            vec!["--".to_string(), "-D".to_string(), "warnings".to_string()],
+        )
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "clippy".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_test(project_path: String) -> CargoCommandResult {
-    run_cargo_command(project_path, "test".to_string(), vec![])
+pub async fn run_cargo_test(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(project_path, "test".to_string(), vec![])
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "test".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_build(project_path: String, release: bool) -> CargoCommandResult {
-    let args = if release {
-        vec!["--release".to_string()]
-    } else {
-        vec![]
-    };
-    run_cargo_command(project_path, "build".to_string(), args)
+pub async fn run_cargo_build(project_path: String, release: bool) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        let args = if release {
+            vec!["--release".to_string()]
+        } else {
+            vec![]
+        };
+        run_cargo_command_sync(project_path, "build".to_string(), args)
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "build".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_check(project_path: String) -> CargoCommandResult {
-    run_cargo_command(project_path, "check".to_string(), vec![])
+pub async fn run_cargo_check(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(project_path, "check".to_string(), vec![])
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "check".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_doc(project_path: String) -> CargoCommandResult {
-    run_cargo_command(
-        project_path,
-        "doc".to_string(),
-        vec!["--no-deps".to_string()],
-    )
+pub async fn run_cargo_doc(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(
+            project_path,
+            "doc".to_string(),
+            vec!["--no-deps".to_string()],
+        )
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "doc".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_update(project_path: String) -> CargoCommandResult {
-    run_cargo_command(project_path, "update".to_string(), vec![])
+pub async fn run_cargo_update(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(project_path, "update".to_string(), vec![])
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "update".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_run(project_path: String, release: bool) -> CargoCommandResult {
-    let args = if release {
-        vec!["--release".to_string()]
-    } else {
-        vec![]
-    };
-    run_cargo_command(project_path, "run".to_string(), args)
+pub async fn run_cargo_run(project_path: String, release: bool) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        let args = if release {
+            vec!["--release".to_string()]
+        } else {
+            vec![]
+        };
+        run_cargo_command_sync(project_path, "run".to_string(), args)
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "run".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_bench(project_path: String) -> CargoCommandResult {
-    run_cargo_command(project_path, "bench".to_string(), vec![])
+pub async fn run_cargo_bench(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(project_path, "bench".to_string(), vec![])
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "bench".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 #[tauri::command]
-pub fn run_cargo_tree(project_path: String) -> CargoCommandResult {
-    run_cargo_command(project_path, "tree".to_string(), vec![])
+pub async fn run_cargo_tree(project_path: String) -> CargoCommandResult {
+    tokio::task::spawn_blocking(move || {
+        run_cargo_command_sync(project_path, "tree".to_string(), vec![])
+    })
+    .await
+    .unwrap_or_else(|_| CargoCommandResult {
+        project_path: String::new(),
+        command: "tree".to_string(),
+        success: false,
+        stdout: String::new(),
+        stderr: "Task panicked".to_string(),
+        exit_code: None,
+    })
 }
 
 // ============ Dependency Analysis ============
@@ -839,7 +1030,7 @@ pub struct VersionUsage {
     pub projects: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DepAnalysis {
     pub dependencies: Vec<DepUsage>,
     pub total_unique_deps: usize,
@@ -863,8 +1054,7 @@ fn extract_version(value: &toml::Value) -> Option<String> {
     }
 }
 
-#[tauri::command]
-pub fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
+fn analyze_dependencies_sync(project_paths: Vec<String>) -> DepAnalysis {
     use std::collections::HashMap;
 
     // Map: dep_name -> version -> list of projects
@@ -935,6 +1125,13 @@ pub fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
     }
 }
 
+#[tauri::command]
+pub async fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
+    tokio::task::spawn_blocking(move || analyze_dependencies_sync(project_paths))
+        .await
+        .unwrap_or_default()
+}
+
 // ============ License Analysis ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -962,7 +1159,7 @@ pub struct LicenseResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LicenseAnalysis {
     pub projects: Vec<LicenseResult>,
     pub license_groups: Vec<LicenseGroup>,
@@ -1061,8 +1258,7 @@ pub fn check_licenses(project_path: String) -> LicenseResult {
     }
 }
 
-#[tauri::command]
-pub fn check_all_licenses(project_paths: Vec<String>) -> LicenseAnalysis {
+fn check_all_licenses_sync(project_paths: Vec<String>) -> LicenseAnalysis {
     use std::collections::HashMap;
 
     let projects: Vec<LicenseResult> = project_paths.into_iter().map(check_licenses).collect();
@@ -1123,6 +1319,13 @@ pub fn check_all_licenses(project_paths: Vec<String>) -> LicenseAnalysis {
     }
 }
 
+#[tauri::command]
+pub async fn check_all_licenses(project_paths: Vec<String>) -> LicenseAnalysis {
+    tokio::task::spawn_blocking(move || check_all_licenses_sync(project_paths))
+        .await
+        .unwrap_or_default()
+}
+
 // ============ Toolchain Analysis ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1140,7 +1343,7 @@ pub struct ToolchainGroup {
     pub projects: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolchainAnalysis {
     pub projects: Vec<ToolchainInfo>,
     pub toolchain_groups: Vec<ToolchainGroup>,
@@ -1169,8 +1372,7 @@ struct CargoPackageInfo {
     rust_version: Option<String>,
 }
 
-#[tauri::command]
-pub fn analyze_toolchains(project_paths: Vec<String>) -> ToolchainAnalysis {
+fn analyze_toolchains_sync(project_paths: Vec<String>) -> ToolchainAnalysis {
     use std::collections::HashMap;
 
     let mut projects: Vec<ToolchainInfo> = Vec::new();
@@ -1269,4 +1471,58 @@ pub fn analyze_toolchains(project_paths: Vec<String>) -> ToolchainAnalysis {
         msrv_groups,
         has_mismatches,
     }
+}
+
+#[tauri::command]
+pub async fn analyze_toolchains(project_paths: Vec<String>) -> ToolchainAnalysis {
+    tokio::task::spawn_blocking(move || analyze_toolchains_sync(project_paths))
+        .await
+        .unwrap_or_default()
+}
+
+// ============ Cache Management ============
+
+#[tauri::command]
+pub fn get_cache() -> ScanCache {
+    load_cache()
+}
+
+#[tauri::command]
+pub fn save_outdated_cache(results: Vec<OutdatedResult>) -> Result<(), String> {
+    let mut cache = load_cache();
+    cache.outdated_results = Some(results);
+    cache.outdated_timestamp = Some(get_current_timestamp());
+    save_cache(&cache)
+}
+
+#[tauri::command]
+pub fn save_audit_cache(results: Vec<AuditResult>) -> Result<(), String> {
+    let mut cache = load_cache();
+    cache.audit_results = Some(results);
+    cache.audit_timestamp = Some(get_current_timestamp());
+    save_cache(&cache)
+}
+
+#[tauri::command]
+pub fn save_dep_analysis_cache(analysis: DepAnalysis) -> Result<(), String> {
+    let mut cache = load_cache();
+    cache.dep_analysis = Some(analysis);
+    cache.dep_analysis_timestamp = Some(get_current_timestamp());
+    save_cache(&cache)
+}
+
+#[tauri::command]
+pub fn save_toolchain_cache(analysis: ToolchainAnalysis) -> Result<(), String> {
+    let mut cache = load_cache();
+    cache.toolchain_analysis = Some(analysis);
+    cache.toolchain_timestamp = Some(get_current_timestamp());
+    save_cache(&cache)
+}
+
+#[tauri::command]
+pub fn save_license_cache(analysis: LicenseAnalysis) -> Result<(), String> {
+    let mut cache = load_cache();
+    cache.license_analysis = Some(analysis);
+    cache.license_timestamp = Some(get_current_timestamp());
+    save_cache(&cache)
 }

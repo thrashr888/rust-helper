@@ -3,10 +3,11 @@ mod commands;
 use commands::{
     analyze_dependencies, analyze_toolchains, check_all_audits, check_all_licenses,
     check_all_outdated, check_audit, check_licenses, check_outdated, clean_project, clean_projects,
-    get_default_scan_root, get_favorites, get_hidden, get_scan_root, run_cargo_bench,
+    get_cache, get_default_scan_root, get_favorites, get_hidden, get_scan_root, run_cargo_bench,
     run_cargo_build, run_cargo_check, run_cargo_clippy, run_cargo_command, run_cargo_doc,
     run_cargo_fmt_check, run_cargo_run, run_cargo_test, run_cargo_tree, run_cargo_update,
-    scan_projects, set_favorite, set_hidden, set_scan_root,
+    save_audit_cache, save_dep_analysis_cache, save_license_cache, save_outdated_cache,
+    save_toolchain_cache, scan_projects, set_favorite, set_hidden, set_scan_root,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -52,7 +53,13 @@ pub fn run() {
             analyze_dependencies,
             analyze_toolchains,
             check_licenses,
-            check_all_licenses
+            check_all_licenses,
+            get_cache,
+            save_outdated_cache,
+            save_audit_cache,
+            save_dep_analysis_cache,
+            save_toolchain_cache,
+            save_license_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
