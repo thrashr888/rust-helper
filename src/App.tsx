@@ -1734,7 +1734,11 @@ function App() {
                         parts.push(content.slice(lastEnd));
                       }
 
-                      return React.createElement(React.Fragment, null, ...parts);
+                      return React.createElement(
+                        React.Fragment,
+                        null,
+                        ...parts,
+                      );
                     };
 
                     return (
