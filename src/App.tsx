@@ -1768,7 +1768,7 @@ function App() {
                 Doc
               </button>
               <button
-                onClick={() => runCargoCommand("update", [])}
+                onClick={() => runCargoCommand("update", ["--quiet"])}
                 disabled={runningCommand !== null}
                 className="command-btn"
               >
@@ -1893,7 +1893,7 @@ function App() {
                     )}
                   </button>
                   <button
-                    onClick={() => runCargoCommand("update", [])}
+                    onClick={() => runCargoCommand("update", ["--quiet"])}
                     disabled={runningCommand !== null || checkingProjectOutdated}
                   >
                     {runningCommand === "update" ? (
