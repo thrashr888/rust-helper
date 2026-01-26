@@ -3336,47 +3336,43 @@ function App() {
           <>
             <h2>Settings</h2>
 
-            {homebrewStatus?.installed_via_homebrew && (
-              <div className="settings-section homebrew-section">
-                <h3>App Version</h3>
-                <div className="version-status">
-                  <span className="current-version">
-                    v{homebrewStatus.current_version}
-                  </span>
-                  {homebrewStatus.update_available ? (
-                    <div className="update-available">
-                      <span className="update-badge">
-                        Update available: v{homebrewStatus.latest_version}
-                      </span>
-                      <button
-                        onClick={upgradeHomebrew}
-                        disabled={upgradingHomebrew}
-                        className="upgrade-btn"
-                      >
-                        {upgradingHomebrew ? (
-                          <>
-                            <Spinner size={14} className="spinning" /> Upgrading...
-                          </>
-                        ) : (
-                          <>
-                            <ArrowUp size={14} /> Upgrade via Homebrew
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="up-to-date" title="Up to date">
-                      <CheckCircle size={16} weight="fill" />
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
             {rustVersionInfo && (
               <div className="settings-section">
-                <h3>Rust Environment</h3>
+                <h3>Environment</h3>
                 <div className="rust-version-info">
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Gear size={16} /> Rust Helper
+                    </span>
+                    <span className="version-value version-with-status">
+                      {homebrewStatus?.current_version ? `v${homebrewStatus.current_version}` : "dev"}
+                      {homebrewStatus?.installed_via_homebrew && (
+                        homebrewStatus.update_available ? (
+                          <span className="update-indicator">
+                            <span className="update-badge">
+                              v{homebrewStatus.latest_version} available
+                            </span>
+                            <button
+                              onClick={upgradeHomebrew}
+                              disabled={upgradingHomebrew}
+                              className="upgrade-btn small"
+                            >
+                              {upgradingHomebrew ? (
+                                <Spinner size={12} className="spinning" />
+                              ) : (
+                                <ArrowUp size={12} />
+                              )}
+                              Upgrade
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="up-to-date" title="Up to date">
+                            <CheckCircle size={14} weight="fill" />
+                          </span>
+                        )
+                      )}
+                    </span>
+                  </div>
                   <div className="version-row">
                     <span className="version-label">
                       <Cpu size={16} /> Rust Compiler

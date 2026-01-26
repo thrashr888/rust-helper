@@ -656,6 +656,24 @@ button svg {
   align-items: center;
 }
 
+.version-with-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upgrade-btn.small {
+  padding: 3px 8px;
+  font-size: 11px;
+  gap: 3px;
+}
+
 .settings-description {
   font-size: 14px;
   color: var(--text-secondary);
@@ -1353,7 +1371,7 @@ button svg {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   padding: 5px 12px;
   cursor: pointer;
