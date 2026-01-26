@@ -807,14 +807,15 @@ button svg {
 
 .command-groups {
   display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
+  flex-direction: column;
+  gap: 16px;
   margin-bottom: 24px;
 }
 
 .command-group {
-  flex: 1 1 200px;
-  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .command-group-label {
@@ -823,7 +824,8 @@ button svg {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  min-width: 90px;
+  flex-shrink: 0;
 }
 
 .command-grid {
