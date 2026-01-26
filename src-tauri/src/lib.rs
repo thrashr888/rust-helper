@@ -5,7 +5,7 @@ use commands::{
     check_all_licenses, check_all_outdated, check_audit, check_homebrew_status, check_licenses,
     check_outdated, check_required_tools, check_rust_homebrew_status, clean_project,
     clean_projects, generate_docs, get_binary_sizes, get_cache, get_cargo_features,
-    get_default_scan_root, get_favorites, get_git_info, get_github_actions_status, get_hidden,
+    get_default_scan_root, get_favorites, get_git_info, get_git_tags, get_github_actions_status, get_hidden,
     get_msrv, get_recent_projects, get_rust_version_info, get_scan_root, get_workspace_info,
     global_search, install_tool, open_file_in_vscode, open_in_finder, open_in_vscode,
     read_cargo_toml, run_cargo_bench, run_cargo_build, run_cargo_check, run_cargo_clippy,
@@ -94,7 +94,8 @@ pub fn run() {
             upgrade_rust_homebrew,
             analyze_bloat,
             run_cargo_tarpaulin,
-            read_tarpaulin_results
+            read_tarpaulin_results,
+            get_git_tags
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

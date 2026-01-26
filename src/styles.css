@@ -2497,3 +2497,66 @@ button svg {
   border-radius: 12px;
   padding: 20px;
 }
+
+/* History Tab */
+.history-tab {
+  padding: 20px;
+}
+
+.history-list {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.history-item {
+  padding: 16px 20px;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.history-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.history-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.history-message {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+
+.history-commit {
+  font-size: 12px;
+}
+
+.history-commit code {
+  font-family: "JetBrains Mono", monospace;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.history-divider {
+  height: 1px;
+  background: var(--border);
+  margin-top: 16px;
+}

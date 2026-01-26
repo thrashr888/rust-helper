@@ -44,6 +44,7 @@ import {
   GitBranch,
   Cpu,
   X,
+  Tag,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { check, Update } from "@tauri-apps/plugin-updater";
@@ -68,6 +69,7 @@ type ProjectDetailTab =
   | "dependencies"
   | "security"
   | "licenses"
+  | "history"
   | "cargo-toml"
   | "docs";
 
@@ -181,6 +183,13 @@ interface GitInfo {
   remote_url: string | null;
   github_url: string | null;
   commit_count: number;
+}
+
+interface GitTag {
+  name: string;
+  message: string;
+  date: string;
+  commit_hash: string;
 }
 
 interface DocResult {
@@ -437,6 +446,8 @@ function App() {
   const [cargoTomlContent, setCargoTomlContent] = useState<string | null>(null);
   const [loadingCargoToml, setLoadingCargoToml] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [gitTags, setGitTags] = useState<GitTag[]>([]);
+  const [loadingGitTags, setLoadingGitTags] = useState(false);
   const [docPath, setDocPath] = useState<string | null>(null);
   const [generatingDocs, setGeneratingDocs] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
@@ -914,6 +925,7 @@ function App() {
     setWorkspaceInfo(null);
     setGithubActionsStatus(null);
     setBloatAnalysis(null);
+    setGitTags([]);
     setView("project-detail");
 
     // Load project info in background (parallel)
@@ -1011,6 +1023,21 @@ function App() {
       setCargoTomlContent(null);
     }
     setLoadingCargoToml(false);
+  };
+
+  const loadGitTags = async () => {
+    if (!selectedProject) return;
+    setLoadingGitTags(true);
+    try {
+      const tags = await invoke<GitTag[]>("get_git_tags", {
+        projectPath: selectedProject.path,
+      });
+      setGitTags(tags);
+    } catch (e) {
+      console.error("Failed to load git tags:", e);
+      setGitTags([]);
+    }
+    setLoadingGitTags(false);
   };
 
   const generateProjectDocs = async () => {
@@ -2915,6 +2942,16 @@ function App() {
                 Licenses
               </button>
               <button
+                className={`detail-tab ${projectDetailTab === "history" ? "active" : ""}`}
+                onClick={() => {
+                  setProjectDetailTab("history");
+                  if (gitTags.length === 0) loadGitTags();
+                }}
+              >
+                <Tag size={16} />
+                History {gitTags.length > 0 && `(${gitTags.length})`}
+              </button>
+              <button
                 className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
                 onClick={() => {
                   setProjectDetailTab("cargo-toml");
@@ -3913,6 +3950,68 @@ function App() {
                 ) : (
                   <div className="empty-state">
                     <p>Click "Scan Licenses" to analyze dependency licenses</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "history" && (
+              <div className="detail-tab-content history-tab">
+                <div className="toolbar">
+                  <button
+                    onClick={loadGitTags}
+                    disabled={loadingGitTags}
+                    className="toolbar-btn"
+                  >
+                    {loadingGitTags ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Tag size={16} />
+                    )}
+                    Refresh
+                  </button>
+                </div>
+                {loadingGitTags ? (
+                  <div className="empty-state">
+                    <Spinner size={24} className="spinning" />
+                    <p>Loading version history...</p>
+                  </div>
+                ) : gitTags.length > 0 ? (
+                  <div className="history-list">
+                    {gitTags.map((tag, index) => (
+                      <div key={tag.commit_hash} className="history-item">
+                        <div className="history-header">
+                          <span className="history-version">
+                            <Tag size={16} />
+                            {tag.name}
+                          </span>
+                          <span className="history-date">
+                            {new Date(tag.date).toLocaleDateString(undefined, {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </span>
+                        </div>
+                        {tag.message && (
+                          <div className="history-message">{tag.message}</div>
+                        )}
+                        <div className="history-commit">
+                          <code>{tag.commit_hash}</code>
+                        </div>
+                        {index < gitTags.length - 1 && (
+                          <div className="history-divider" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <Tag size={32} />
+                    <p>No git tags found</p>
+                    <p className="empty-state-hint">
+                      Create tags with: git tag -a v1.0.0 -m "Release v1.0.0"
+                    </p>
                   </div>
                 )}
               </div>

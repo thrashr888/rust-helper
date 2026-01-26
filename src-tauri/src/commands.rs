@@ -1789,6 +1789,119 @@ pub struct GitInfo {
     pub commit_count: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitTag {
+    pub name: String,
+    pub message: String,
+    pub date: String,
+    pub commit_hash: String,
+}
+
+#[tauri::command]
+pub fn get_git_tags(project_path: String) -> Vec<GitTag> {
+    let path = PathBuf::from(&project_path);
+    let mut tags = Vec::new();
+
+    // Get all tags with their info using git for-each-ref
+    let output = Command::new("git")
+        .args([
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--format=%(refname:short)|%(subject)|%(creatordate:iso-strict)|%(objectname:short)",
+            "refs/tags",
+        ])
+        .current_dir(&path)
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.splitn(4, '|').collect();
+                if parts.len() >= 4 {
+                    tags.push(GitTag {
+                        name: parts[0].to_string(),
+                        message: parts[1].to_string(),
+                        date: parts[2].to_string(),
+                        commit_hash: parts[3].to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // If no tags found or for-each-ref failed, try simple tag list
+    if tags.is_empty() {
+        let output = Command::new("git")
+            .args(["tag", "-l", "--sort=-version:refname"])
+            .current_dir(&path)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for name in stdout.lines() {
+                    if !name.is_empty() {
+                        // Get tag message
+                        let message = Command::new("git")
+                            .args(["tag", "-l", "-n1", name])
+                            .current_dir(&path)
+                            .output()
+                            .ok()
+                            .and_then(|o| {
+                                if o.status.success() {
+                                    let msg = String::from_utf8_lossy(&o.stdout);
+                                    Some(msg.trim().strip_prefix(name)?.trim().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default();
+
+                        // Get tag date and commit
+                        let date = Command::new("git")
+                            .args(["log", "-1", "--format=%ci", name])
+                            .current_dir(&path)
+                            .output()
+                            .ok()
+                            .and_then(|o| {
+                                if o.status.success() {
+                                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default();
+
+                        let commit_hash = Command::new("git")
+                            .args(["rev-parse", "--short", name])
+                            .current_dir(&path)
+                            .output()
+                            .ok()
+                            .and_then(|o| {
+                                if o.status.success() {
+                                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_default();
+
+                        tags.push(GitTag {
+                            name: name.to_string(),
+                            message,
+                            date,
+                            commit_hash,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    tags
+}
+
 #[tauri::command]
 pub fn get_git_info(project_path: String) -> GitInfo {
     let path = PathBuf::from(&project_path);
