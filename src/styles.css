@@ -932,11 +932,32 @@ button svg {
   background: #fff;
 }
 
+.project-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.project-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-detail-info .header-row {
+  margin-bottom: 4px;
+}
+
+.project-detail-info .detail-path-row {
+  margin-bottom: 0;
+}
+
 .project-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .project-stats .stat-card {

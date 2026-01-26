@@ -2100,63 +2100,66 @@ function App() {
 
         {view === "project-detail" && selectedProject && (
           <>
-            <div className="header-row">
-              <button
-                className="icon-btn back-btn"
-                onClick={() => setView("projects")}
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <h2>{selectedProject.name}</h2>
-            </div>
-            <div className="detail-path-row">
-              <button
-                className="detail-path clickable"
-                onClick={() => invoke("open_in_finder", { path: selectedProject.path })}
-                title="Open in Finder"
-              >
-                <FolderOpen size={14} />
-                {selectedProject.path}
-              </button>
-              {gitInfo?.github_url && (
-                <a
-                  href={gitInfo.github_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="github-link"
-                >
-                  <GithubLogo size={16} weight="fill" />
-                  {gitInfo.github_url.replace("https://github.com/", "")}
-                </a>
-              )}
-            </div>
-
-            <div className="project-stats">
-              <div className="stat-card">
-                <span className="stat-value">
-                  {formatBytes(selectedProject.target_size)}
-                </span>
-                <span className="stat-label">Target Size</span>
+            <div className="project-detail-header">
+              <div className="project-detail-info">
+                <div className="header-row">
+                  <button
+                    className="icon-btn back-btn"
+                    onClick={() => setView("projects")}
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <h2>{selectedProject.name}</h2>
+                </div>
+                <div className="detail-path-row">
+                  <button
+                    className="detail-path clickable"
+                    onClick={() => invoke("open_in_finder", { path: selectedProject.path })}
+                    title="Open in Finder"
+                  >
+                    <FolderOpen size={14} />
+                    {selectedProject.path}
+                  </button>
+                  {gitInfo?.github_url && (
+                    <a
+                      href={gitInfo.github_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="github-link"
+                    >
+                      <GithubLogo size={16} weight="fill" />
+                      {gitInfo.github_url.replace("https://github.com/", "")}
+                    </a>
+                  )}
+                </div>
               </div>
-              <div className="stat-card">
-                <span className="stat-value">{selectedProject.dep_count}</span>
-                <span className="stat-label">Dependencies</span>
-              </div>
-              <div className="stat-card">
-                <span className="stat-value">
-                  {formatTimeAgo(selectedProject.last_modified)}
-                </span>
-                <span className="stat-label">Last Modified</span>
-              </div>
-              {gitInfo && (
+              <div className="project-stats">
                 <div className="stat-card">
                   <span className="stat-value">
-                    <GitCommit size={16} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                    {gitInfo.commit_count.toLocaleString()}
+                    {formatBytes(selectedProject.target_size)}
                   </span>
-                  <span className="stat-label">Commits</span>
+                  <span className="stat-label">Target Size</span>
                 </div>
-              )}
+                <div className="stat-card">
+                  <span className="stat-value">{selectedProject.dep_count}</span>
+                  <span className="stat-label">Dependencies</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-value">
+                    {formatTimeAgo(selectedProject.last_modified)}
+                  </span>
+                  <span className="stat-label">Last Modified</span>
+                </div>
+                {gitInfo && (
+                  <div className="stat-card">
+                    <span className="stat-value">
+                      <GitCommit size={16} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                      {gitInfo.commit_count.toLocaleString()}
+                    </span>
+                    <span className="stat-label">Commits</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="detail-tabs">
