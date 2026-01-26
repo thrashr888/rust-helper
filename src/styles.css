@@ -934,15 +934,16 @@ button svg {
 
 .project-detail-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px 16px;
   margin-bottom: 16px;
 }
 
 .project-detail-info {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 300px;
+  min-width: 200px;
 }
 
 .project-detail-info .header-row {
