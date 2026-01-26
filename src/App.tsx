@@ -43,6 +43,7 @@ import {
   MagnifyingGlass,
   GitBranch,
   Cpu,
+  X,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { check, Update } from "@tauri-apps/plugin-updater";
@@ -1455,7 +1456,22 @@ function App() {
             </div>
             {jobs.map((job) => (
               <div key={job.id} className="job-item">
-                {job.label}
+                <span className="job-label">{job.label}</span>
+                <button
+                  className="job-cancel"
+                  onClick={() => {
+                    removeJob(job.id);
+                    // Reset relevant state if this was a cargo command
+                    if (job.id.startsWith("cargo-")) {
+                      setRunningCommand(null);
+                      setIsStreaming(false);
+                      setRunningCoverage(false);
+                    }
+                  }}
+                  title="Cancel"
+                >
+                  <X size={12} />
+                </button>
               </div>
             ))}
           </div>

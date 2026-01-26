@@ -1352,13 +1352,48 @@ button svg {
 }
 
 .job-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 11px;
   color: var(--text-secondary);
   padding: 4px 0;
   padding-left: 22px;
+  padding-right: 8px;
+}
+
+.job-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.job-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.job-item:hover .job-cancel {
+  opacity: 1;
+}
+
+.job-cancel:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--error);
 }
 
 /* Favorites under Projects nav item */
