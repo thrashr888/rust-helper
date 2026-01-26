@@ -1562,7 +1562,7 @@ pub struct ToolStatus {
 
 fn check_tool_installed(_command: &str, subcommand: &str) -> bool {
     Command::new("cargo")
-        .args([subcommand, "--version"])
+        .args([subcommand, "--help"])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
