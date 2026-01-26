@@ -755,7 +755,7 @@ function App() {
   };
 
   // Commands that benefit from streaming output
-  const streamingCommands = ["run", "bench", "test", "audit", "clippy"];
+  const streamingCommands = ["run", "bench", "test", "audit", "clippy", "tree"];
 
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
@@ -2225,7 +2225,7 @@ function App() {
                     Run
                   </button>
                   <button
-                    onClick={() => runCargoCommand("test", [])}
+                    onClick={() => runCargoCommand("test", ["--quiet"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
@@ -2313,7 +2313,7 @@ function App() {
                     Update
                   </button>
                   <button
-                    onClick={() => runCargoCommand("tree", [])}
+                    onClick={() => runCargoCommand("tree", ["--color", "always"])}
                     disabled={runningCommand !== null}
                     className="command-btn"
                   >
