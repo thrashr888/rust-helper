@@ -2938,10 +2938,16 @@ pub async fn analyze_bloat(project_path: String, release: bool) -> Result<BloatA
             .map(|arr| {
                 arr.iter()
                     .filter_map(|c| {
+                        let size = c.get("size")?.as_u64()?;
+                        let size_percent = if text_size > 0 {
+                            (size as f64 / text_size as f64) * 100.0
+                        } else {
+                            0.0
+                        };
                         Some(BloatCrate {
                             name: c.get("name")?.as_str()?.to_string(),
-                            size: c.get("size")?.as_u64()?,
-                            size_percent: c.get("size-percent")?.as_f64().unwrap_or(0.0),
+                            size,
+                            size_percent,
                         })
                     })
                     .collect()
@@ -2970,10 +2976,16 @@ pub async fn analyze_bloat(project_path: String, release: bool) -> Result<BloatA
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|f| {
+                            let size = f.get("size")?.as_u64()?;
+                            let size_percent = if text_size > 0 {
+                                (size as f64 / text_size as f64) * 100.0
+                            } else {
+                                0.0
+                            };
                             Some(BloatFunction {
                                 name: f.get("name")?.as_str()?.to_string(),
-                                size: f.get("size")?.as_u64()?,
-                                size_percent: f.get("size-percent")?.as_f64().unwrap_or(0.0),
+                                size,
+                                size_percent,
                                 crate_name: f
                                     .get("crate")
                                     .and_then(|c| c.as_str())
