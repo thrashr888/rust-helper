@@ -2630,10 +2630,29 @@ pub fn detect_installed_ides() -> Vec<InstalledIde> {
 
 #[tauri::command]
 pub fn open_in_ide(project_path: String, ide_command: String) -> Result<(), String> {
-    Command::new(&ide_command)
-        .arg(&project_path)
-        .spawn()
-        .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+    // Terminal-based editors need to be opened in a terminal window
+    match ide_command.as_str() {
+        "nvim" | "vim" | "emacs" => {
+            // Use osascript to open Terminal.app with the editor
+            let script = format!(
+                r#"tell application "Terminal"
+                    activate
+                    do script "cd '{}' && {}"
+                end tell"#,
+                project_path, ide_command
+            );
+            Command::new("osascript")
+                .args(["-e", &script])
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+        }
+        _ => {
+            Command::new(&ide_command)
+                .arg(&project_path)
+                .spawn()
+                .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+        }
+    }
     Ok(())
 }
 
@@ -2669,12 +2688,12 @@ pub fn open_file_in_ide(
             ]
         }
         "nvim" | "vim" => {
-            // Vim/Neovim: +line file
-            vec![format!("+{}", line_number), file_path.clone()]
+            // Terminal editors - handle separately below
+            vec![]
         }
         "emacs" => {
-            // Emacs: +line file
-            vec![format!("+{}", line_number), file_path.clone()]
+            // Terminal editors - handle separately below
+            vec![]
         }
         "nova" => {
             // Nova: file:line (similar to Sublime)
@@ -2686,10 +2705,41 @@ pub fn open_file_in_ide(
         }
     };
 
-    Command::new(&ide_command)
-        .args(&args)
-        .spawn()
-        .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+    // Terminal-based editors need to be opened in a terminal window
+    match ide_command.as_str() {
+        "nvim" | "vim" => {
+            let script = format!(
+                r#"tell application "Terminal"
+                    activate
+                    do script "{} +{} '{}'"
+                end tell"#,
+                ide_command, line_number, file_path
+            );
+            Command::new("osascript")
+                .args(["-e", &script])
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+        }
+        "emacs" => {
+            let script = format!(
+                r#"tell application "Terminal"
+                    activate
+                    do script "{} +{} '{}'"
+                end tell"#,
+                ide_command, line_number, file_path
+            );
+            Command::new("osascript")
+                .args(["-e", &script])
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+        }
+        _ => {
+            Command::new(&ide_command)
+                .args(&args)
+                .spawn()
+                .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+        }
+    }
     Ok(())
 }
 
