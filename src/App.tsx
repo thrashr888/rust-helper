@@ -2354,19 +2354,21 @@ function App() {
                 {workspaceInfo?.is_workspace && workspaceInfo.members.length > 0 && (
                   <div className="workspace-members">
                     <span className="workspace-label">Workspace:</span>
-                    {workspaceInfo.members.map((member) => (
-                      <button
-                        key={member.path}
-                        className={`workspace-member ${member.is_current ? "current" : ""}`}
-                        onClick={() => {
-                          const project = projects.find((p) => p.path === member.path);
-                          if (project) openProjectDetail(project);
-                        }}
-                        disabled={member.is_current}
-                      >
-                        {member.name}
-                      </button>
-                    ))}
+                    <select
+                      className="workspace-select"
+                      value={workspaceInfo.members.find(m => m.is_current)?.path || ""}
+                      onChange={(e) => {
+                        const project = projects.find((p) => p.path === e.target.value);
+                        if (project) openProjectDetail(project);
+                      }}
+                    >
+                      {workspaceInfo.members.map((member) => (
+                        <option key={member.path} value={member.path}>
+                          {member.name} {member.is_current ? "(current)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="workspace-count">{workspaceInfo.members.length} members</span>
                   </div>
                 )}
               </div>

@@ -1477,7 +1477,7 @@ button svg {
   color: var(--text-secondary);
 }
 
-.workspace-member {
+.workspace-select {
   padding: 4px 10px;
   font-size: 12px;
   border-radius: 4px;
@@ -1486,18 +1486,30 @@ button svg {
   color: var(--text-primary);
   cursor: pointer;
   transition: all 0.15s;
+  min-width: 180px;
+  max-width: 300px;
 }
 
-.workspace-member:hover:not(:disabled) {
+.workspace-select:hover {
   background: var(--bg-secondary);
   border-color: var(--accent);
 }
 
-.workspace-member.current {
-  background: var(--accent);
-  color: var(--bg-primary);
+.workspace-select:focus {
+  outline: none;
   border-color: var(--accent);
-  cursor: default;
+}
+
+.workspace-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 4px;
+}
+
+.workspace-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 4px;
 }
 
 /* Search box */
