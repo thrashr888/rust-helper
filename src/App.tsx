@@ -1893,28 +1893,29 @@ function App() {
                     )}
                   </button>
                   <button
-                    onClick={() => runCargoCommand("update", ["--quiet"])}
+                    onClick={() => runCargoCommand("upgrade", [])}
                     disabled={runningCommand !== null || checkingProjectOutdated}
+                    title="Updates Cargo.toml to latest versions (cargo upgrade)"
                   >
-                    {runningCommand === "update" ? (
-                      <><Spinner size={16} className="spinning" /> Updating...</>
+                    {runningCommand === "upgrade" ? (
+                      <><Spinner size={16} className="spinning" /> Upgrading...</>
                     ) : (
-                      <><ArrowsClockwise size={16} /> Update All</>
+                      <><ArrowUp size={16} /> Upgrade All</>
                     )}
                   </button>
-                  <span className="toolbar-note">Requires: cargo install cargo-outdated</span>
+                  <span className="toolbar-note">Requires: cargo install cargo-outdated cargo-edit</span>
                 </div>
-                {commandOutput && commandOutput.command === "update" && (
+                {commandOutput && (commandOutput.command === "upgrade" || commandOutput.command.startsWith("upgrade ")) && (
                   <div className="command-output" style={{ marginBottom: 16 }}>
                     <div className="command-output-header">
                       <span className={`command-status ${commandOutput.success ? "success" : "error"}`}>
                         {commandOutput.success ? (
-                          <><CheckCircle size={16} weight="fill" /> Updated</>
+                          <><CheckCircle size={16} weight="fill" /> Upgraded</>
                         ) : (
                           <><XCircle size={16} weight="fill" /> Failed</>
                         )}
                       </span>
-                      <span className="command-name">cargo update</span>
+                      <span className="command-name">cargo {commandOutput.command}</span>
                     </div>
                     <pre className="command-output-text">
                       {commandOutput.stdout || commandOutput.stderr || "(no output)"}
@@ -1929,25 +1930,45 @@ function App() {
                         All dependencies are up to date
                       </div>
                     ) : (
-                      <div className="deps-table">
-                        <div className="deps-table-header">
-                          <span>Package</span>
-                          <span>Current</span>
-                          <span>Latest</span>
-                          <span>Type</span>
-                        </div>
-                        {projectOutdated.dependencies.map((dep) => (
-                          <div key={dep.name} className="deps-table-row">
-                            <span className="dep-name">{dep.name}</span>
-                            <span className="dep-version dep-current">{dep.current}</span>
-                            <span className="dep-version dep-latest">
-                              <ArrowUp size={12} />
-                              {dep.latest}
-                            </span>
-                            <span className="dep-kind">{dep.kind}</span>
+                      <>
+                        <div className="deps-table">
+                          <div className="deps-table-header deps-table-header-with-action">
+                            <span>Package</span>
+                            <span>Current</span>
+                            <span>Latest</span>
+                            <span>Type</span>
+                            <span></span>
                           </div>
-                        ))}
-                      </div>
+                          {projectOutdated.dependencies.map((dep) => (
+                            <div key={dep.name} className="deps-table-row deps-table-row-with-action">
+                              <span className="dep-name">{dep.name}</span>
+                              <span className="dep-version dep-current">{dep.current}</span>
+                              <span className="dep-version dep-latest">
+                                <ArrowUp size={12} />
+                                {dep.latest}
+                              </span>
+                              <span className="dep-kind">{dep.kind}</span>
+                              <span className="dep-action">
+                                <button
+                                  className="small"
+                                  onClick={() => runCargoCommand(`upgrade ${dep.name}`, [])}
+                                  disabled={runningCommand !== null}
+                                  title={`Upgrade ${dep.name} to ${dep.latest}`}
+                                >
+                                  {runningCommand === `upgrade ${dep.name}` ? (
+                                    <Spinner size={12} className="spinning" />
+                                  ) : (
+                                    <ArrowUp size={12} />
+                                  )}
+                                </button>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="deps-help-text">
+                          Click <ArrowUp size={12} style={{ verticalAlign: "middle" }} /> to upgrade individual packages in Cargo.toml
+                        </p>
+                      </>
                     )
                   ) : (
                     <div className="deps-error-message">
