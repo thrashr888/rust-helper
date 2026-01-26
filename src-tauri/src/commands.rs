@@ -42,6 +42,7 @@ pub struct AppConfig {
     pub hidden: Vec<String>,
     pub scan_root: Option<String>,
     pub recent_projects: Vec<String>,
+    pub preferred_ide: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -588,6 +589,18 @@ pub fn get_default_scan_root() -> String {
     dirs::home_dir()
         .map(|h| h.join("Workspace").to_string_lossy().to_string())
         .unwrap_or_else(|| "/".to_string())
+}
+
+#[tauri::command]
+pub fn get_preferred_ide() -> Option<String> {
+    load_config().preferred_ide
+}
+
+#[tauri::command]
+pub fn set_preferred_ide(ide_command: String) -> Result<(), String> {
+    let mut config = load_config();
+    config.preferred_ide = Some(ide_command);
+    save_config(&config)
 }
 
 // ============ Security Audit ============
@@ -2575,6 +2588,112 @@ pub fn open_file_in_vscode(file_path: String, line_number: u32) -> Result<(), St
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledIde {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+}
+
+#[tauri::command]
+pub fn detect_installed_ides() -> Vec<InstalledIde> {
+    let ides = vec![
+        ("vscode", "VS Code", "code"),
+        ("cursor", "Cursor", "cursor"),
+        ("zed", "Zed", "zed"),
+        ("rustrover", "RustRover", "rustrover"),
+        ("idea", "IntelliJ IDEA", "idea"),
+        ("sublime", "Sublime Text", "subl"),
+        ("nova", "Nova", "nova"),
+        ("fleet", "Fleet", "fleet"),
+        ("neovim", "Neovim", "nvim"),
+        ("vim", "Vim", "vim"),
+        ("emacs", "Emacs", "emacs"),
+    ];
+
+    ides.into_iter()
+        .filter_map(|(id, name, cmd)| {
+            // Check if command exists using `which`
+            let result = Command::new("which").arg(cmd).output().ok()?;
+
+            if result.status.success() {
+                Some(InstalledIde {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    command: cmd.to_string(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn open_in_ide(project_path: String, ide_command: String) -> Result<(), String> {
+    Command::new(&ide_command)
+        .arg(&project_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_file_in_ide(
+    file_path: String,
+    line_number: u32,
+    ide_command: String,
+) -> Result<(), String> {
+    // Different IDEs have different syntax for opening at a line
+    let args: Vec<String> = match ide_command.as_str() {
+        "code" | "cursor" => {
+            // VS Code/Cursor: --goto file:line
+            vec![
+                "--goto".to_string(),
+                format!("{}:{}", file_path, line_number),
+            ]
+        }
+        "zed" => {
+            // Zed: file:line
+            vec![format!("{}:{}", file_path, line_number)]
+        }
+        "subl" => {
+            // Sublime: file:line
+            vec![format!("{}:{}", file_path, line_number)]
+        }
+        "idea" | "rustrover" | "fleet" => {
+            // JetBrains: --line line file
+            vec![
+                "--line".to_string(),
+                line_number.to_string(),
+                file_path.clone(),
+            ]
+        }
+        "nvim" | "vim" => {
+            // Vim/Neovim: +line file
+            vec![format!("+{}", line_number), file_path.clone()]
+        }
+        "emacs" => {
+            // Emacs: +line file
+            vec![format!("+{}", line_number), file_path.clone()]
+        }
+        "nova" => {
+            // Nova: file:line (similar to Sublime)
+            vec![format!("{}:{}", file_path, line_number)]
+        }
+        _ => {
+            // Default: just open the file
+            vec![file_path.clone()]
+        }
+    };
+
+    Command::new(&ide_command)
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Failed to open {}: {}", ide_command, e))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RustVersionInfo {
     pub rustc_version: Option<String>,
     pub cargo_version: Option<String>,
@@ -2714,10 +2833,10 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
                     match msg_type {
                         "context" => {
                             if let Some(data) = json.get("data") {
-                                let line_number = data
-                                    .get("line_number")
-                                    .and_then(|n| n.as_u64())
-                                    .unwrap_or(0) as u32;
+                                let line_number =
+                                    data.get("line_number")
+                                        .and_then(|n| n.as_u64())
+                                        .unwrap_or(0) as u32;
                                 let content = data
                                     .get("lines")
                                     .and_then(|l| l.get("text"))
@@ -2779,10 +2898,10 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
                                     .trim_end()
                                     .to_string();
 
-                                let line_number = data
-                                    .get("line_number")
-                                    .and_then(|n| n.as_u64())
-                                    .unwrap_or(0) as u32;
+                                let line_number =
+                                    data.get("line_number")
+                                        .and_then(|n| n.as_u64())
+                                        .unwrap_or(0) as u32;
 
                                 // Extract match positions from submatches
                                 let matches: Vec<SearchMatch> = data
@@ -3097,9 +3216,7 @@ pub struct BloatAnalysis {
 pub async fn analyze_bloat(project_path: String, release: bool) -> Result<BloatAnalysis, String> {
     tokio::task::spawn_blocking(move || {
         // First check if cargo-bloat is installed
-        let check = Command::new("cargo")
-            .args(["bloat", "--version"])
-            .output();
+        let check = Command::new("cargo").args(["bloat", "--version"]).output();
 
         if check.is_err() || !check.unwrap().status.success() {
             return Err(

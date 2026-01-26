@@ -193,6 +193,12 @@ interface GitTag {
   commit_hash: string;
 }
 
+interface InstalledIde {
+  id: string;
+  name: string;
+  command: string;
+}
+
 interface GitStats {
   contributors: number;
   commits: number;
@@ -518,6 +524,10 @@ function App() {
   const [toolchainTimestamp, setToolchainTimestamp] = useState<number | null>(null);
   const [licenseTimestamp, setLicenseTimestamp] = useState<number | null>(null);
 
+  // IDE preference
+  const [installedIdes, setInstalledIdes] = useState<InstalledIde[]>([]);
+  const [preferredIde, setPreferredIde] = useState<string | null>(null);
+
   // Background job queue
   interface BackgroundJob {
     id: string;
@@ -575,6 +585,17 @@ function App() {
       // Check required tools
       const tools = await invoke<ToolStatus[]>("check_required_tools");
       setRequiredTools(tools);
+
+      // Load IDE preference and detect installed IDEs
+      const ides = await invoke<InstalledIde[]>("detect_installed_ides");
+      setInstalledIdes(ides);
+      const savedIde = await invoke<string | null>("get_preferred_ide");
+      if (savedIde) {
+        setPreferredIde(savedIde);
+      } else if (ides.length > 0) {
+        // Default to first detected IDE (usually VS Code)
+        setPreferredIde(ides[0].command);
+      }
 
       setConfigLoaded(true);
     } catch (e) {
@@ -1079,12 +1100,12 @@ function App() {
     setGeneratingDocs(false);
   };
 
-  const openInVSCode = async () => {
-    if (!selectedProject) return;
+  const openInIde = async () => {
+    if (!selectedProject || !preferredIde) return;
     try {
-      await invoke("open_in_vscode", { projectPath: selectedProject.path });
+      await invoke("open_in_ide", { projectPath: selectedProject.path, ideCommand: preferredIde });
     } catch (e) {
-      console.error("Failed to open in VS Code:", e);
+      console.error("Failed to open in IDE:", e);
     }
   };
 
@@ -1802,12 +1823,16 @@ function App() {
                             className="icon-btn"
                             onClick={(e) => {
                               e.stopPropagation();
-                              invoke("open_file_in_vscode", {
-                                filePath: result.file_path,
-                                lineNumber: result.line_number,
-                              });
+                              if (preferredIde) {
+                                invoke("open_file_in_ide", {
+                                  filePath: result.file_path,
+                                  lineNumber: result.line_number,
+                                  ideCommand: preferredIde,
+                                });
+                              }
                             }}
-                            title="Open in VS Code"
+                            title={`Open in ${installedIdes.find(i => i.command === preferredIde)?.name || "IDE"}`}
+                            disabled={!preferredIde}
                           >
                             <Code size={16} />
                           </button>
@@ -2824,8 +2849,9 @@ function App() {
                   </button>
                   <button
                     className="icon-btn"
-                    onClick={openInVSCode}
-                    title="Open in VS Code"
+                    onClick={openInIde}
+                    title={`Open in ${installedIdes.find(i => i.command === preferredIde)?.name || "IDE"}`}
+                    disabled={!preferredIde}
                   >
                     <Code size={16} />
                   </button>
@@ -4192,6 +4218,43 @@ function App() {
               </div>
               {scanRoot && (
                 <p className="settings-current">Current: {scanRoot}</p>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <h3>Preferred IDE</h3>
+              <p className="settings-description">
+                Choose which IDE to use when opening projects and files.
+              </p>
+              {installedIdes.length > 0 ? (
+                <div className="settings-row">
+                  <select
+                    value={preferredIde || ""}
+                    onChange={async (e) => {
+                      const newIde = e.target.value;
+                      setPreferredIde(newIde);
+                      try {
+                        await invoke("set_preferred_ide", { ideCommand: newIde });
+                      } catch (err) {
+                        console.error("Failed to save IDE preference:", err);
+                      }
+                    }}
+                    className="settings-select"
+                  >
+                    {installedIdes.map((ide) => (
+                      <option key={ide.id} value={ide.command}>
+                        {ide.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="settings-hint">No supported IDEs detected on your system.</p>
+              )}
+              {preferredIde && (
+                <p className="settings-current">
+                  Current: {installedIdes.find(i => i.command === preferredIde)?.name || preferredIde}
+                </p>
               )}
             </div>
 
