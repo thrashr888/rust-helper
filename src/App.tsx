@@ -2114,7 +2114,7 @@ function App() {
                   </button>
                   <button
                     onClick={() =>
-                      runCargoCommand("clippy", ["--fix", "--allow-dirty", "--allow-staged"])
+                      runCargoCommand("clippy", ["--fix", "--allow-dirty", "--allow-staged", "--quiet"])
                     }
                     disabled={runningCommand !== null}
                     className="command-btn"
