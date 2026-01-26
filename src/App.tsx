@@ -62,6 +62,7 @@ type View =
 
 type ProjectDetailTab =
   | "commands"
+  | "tests"
   | "cleanup"
   | "dependencies"
   | "security"
@@ -2880,6 +2881,13 @@ function App() {
                 Commands
               </button>
               <button
+                className={`detail-tab ${projectDetailTab === "tests" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("tests")}
+              >
+                <Bug size={16} />
+                Tests
+              </button>
+              <button
                 className={`detail-tab ${projectDetailTab === "cleanup" ? "active" : ""}`}
                 onClick={() => setProjectDetailTab("cleanup")}
               >
@@ -2990,38 +2998,6 @@ function App() {
                             <Play size={16} />
                           )}
                           Run
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="command-group">
-                      <h4 className="command-group-label">Testing</h4>
-                      <div className="command-grid">
-                        <button
-                          onClick={() =>
-                            runCargoCommand("test", ["--color", "always"])
-                          }
-                          disabled={runningCommand !== null}
-                          className="command-btn"
-                        >
-                          {runningCommand === "test" ? (
-                            <Spinner size={16} className="spinning" />
-                          ) : (
-                            <Bug size={16} />
-                          )}
-                          Test
-                        </button>
-                        <button
-                          onClick={() => runCargoCommand("bench", [])}
-                          disabled={runningCommand !== null}
-                          className="command-btn"
-                        >
-                          {runningCommand === "bench" ? (
-                            <Spinner size={16} className="spinning" />
-                          ) : (
-                            <Timer size={16} />
-                          )}
-                          Bench
                         </button>
                       </div>
                     </div>
@@ -3152,19 +3128,6 @@ function App() {
                           )}
                           Audit
                         </button>
-                        <button
-                          onClick={() => runCoverage()}
-                          disabled={runningCoverage}
-                          className="command-btn"
-                          title="Run code coverage with cargo-tarpaulin"
-                        >
-                          {runningCoverage ? (
-                            <Spinner size={16} className="spinning" />
-                          ) : (
-                            <Cpu size={16} />
-                          )}
-                          Coverage
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -3280,59 +3243,143 @@ function App() {
                       />
                     </div>
                   )}
-
-                  {coverageError && (
-                    <div className="coverage-error">
-                      <XCircle size={16} />
-                      <span>{coverageError}</span>
-                    </div>
-                  )}
-
-                  {coverageResult && (
-                    <div className="coverage-analysis">
-                      <div className="coverage-header">
-                        <h4>Code Coverage</h4>
-                        <span
-                          className={`coverage-badge ${coverageResult.coverage_percent >= 80 ? "good" : coverageResult.coverage_percent >= 50 ? "medium" : "low"}`}
-                        >
-                          {coverageResult.coverage_percent.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="coverage-summary">
-                        <span>
-                          {coverageResult.total_covered} /{" "}
-                          {coverageResult.total_coverable} lines covered
-                        </span>
-                      </div>
-                      <div className="coverage-files">
-                        <h5>Files by Coverage</h5>
-                        <div className="coverage-list">
-                          {coverageResult.files.slice(0, 20).map((file, i) => (
-                            <div key={i} className="coverage-item">
-                              <span
-                                className="coverage-file-name"
-                                title={file.path}
-                              >
-                                {file.path.split("/").pop()}
-                              </span>
-                              <div className="coverage-bar-container">
-                                <div
-                                  className={`coverage-bar ${file.percent >= 80 ? "good" : file.percent >= 50 ? "medium" : "low"}`}
-                                  style={{
-                                    width: `${Math.min(file.percent, 100)}%`,
-                                  }}
-                                />
-                              </div>
-                              <span className="coverage-percent">
-                                {file.percent.toFixed(0)}%
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
+              </div>
+            )}
+
+            {projectDetailTab === "tests" && (
+              <div className="detail-tab-content tests-tab">
+                <div className="tests-toolbar">
+                  <button
+                    onClick={() =>
+                      runCargoCommand("test", ["--color", "always"])
+                    }
+                    disabled={runningCommand !== null}
+                    className="test-btn primary"
+                  >
+                    {runningCommand === "test" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Bug size={16} />
+                    )}
+                    Run Tests
+                  </button>
+                  <button
+                    onClick={() => runCargoCommand("bench", [])}
+                    disabled={runningCommand !== null}
+                    className="test-btn"
+                  >
+                    {runningCommand === "bench" ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Timer size={16} />
+                    )}
+                    Run Benchmarks
+                  </button>
+                  <button
+                    onClick={() => runCoverage()}
+                    disabled={runningCoverage}
+                    className="test-btn"
+                    title="Run code coverage with cargo-tarpaulin"
+                  >
+                    {runningCoverage ? (
+                      <Spinner size={16} className="spinning" />
+                    ) : (
+                      <Cpu size={16} />
+                    )}
+                    Run Coverage
+                  </button>
+                </div>
+
+                {/* Test Output Section */}
+                {commandOutput &&
+                  (commandOutput.command === "test" ||
+                    commandOutput.command === "bench") && (
+                    <div className="test-results">
+                      <div className="test-results-header">
+                        <h4>
+                          {commandOutput.command === "test"
+                            ? "Test Results"
+                            : "Benchmark Results"}
+                        </h4>
+                        <span
+                          className={`test-status-badge ${commandOutput.success ? "passed" : "failed"}`}
+                        >
+                          {commandOutput.success ? (
+                            <>
+                              <CheckCircle size={14} /> Passed
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={14} /> Failed
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <pre
+                        className="test-output"
+                        dangerouslySetInnerHTML={{
+                          __html: (commandOutput.stdout || commandOutput.stderr || "(no output)")
+                            .split("\n")
+                            .map((line) => ansiConverter.current.toHtml(line))
+                            .join("\n"),
+                        }}
+                      />
+                    </div>
+                  )}
+
+                {/* Coverage Section */}
+                {coverageError && (
+                  <div className="coverage-error">
+                    <XCircle size={16} />
+                    <span>{coverageError}</span>
+                  </div>
+                )}
+
+                {coverageResult && (
+                  <div className="coverage-results">
+                    <div className="coverage-header">
+                      <h4>Code Coverage</h4>
+                      <span
+                        className={`coverage-badge ${coverageResult.coverage_percent >= 80 ? "good" : coverageResult.coverage_percent >= 50 ? "medium" : "low"}`}
+                      >
+                        {coverageResult.coverage_percent.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="coverage-summary">
+                      <span>
+                        {coverageResult.total_covered} /{" "}
+                        {coverageResult.total_coverable} lines covered
+                      </span>
+                    </div>
+                    <div className="coverage-files">
+                      <h5>Files by Coverage</h5>
+                      <div className="coverage-list">
+                        {coverageResult.files.slice(0, 20).map((file, i) => (
+                          <div key={i} className="coverage-item">
+                            <span
+                              className="coverage-file-name"
+                              title={file.path}
+                            >
+                              {file.path.split("/").pop()}
+                            </span>
+                            <div className="coverage-bar-container">
+                              <div
+                                className={`coverage-bar ${file.percent >= 80 ? "good" : file.percent >= 50 ? "medium" : "low"}`}
+                                style={{
+                                  width: `${Math.min(file.percent, 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="coverage-percent">
+                              {file.percent.toFixed(0)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
