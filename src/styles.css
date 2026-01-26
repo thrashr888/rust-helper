@@ -32,7 +32,7 @@ body {
 }
 
 .sidebar {
-  width: 240px;
+  width: 200px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
   padding: 16px;
@@ -769,9 +769,25 @@ button svg {
 }
 
 .detail-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
   word-break: break-all;
+  text-align: left;
+}
+
+.detail-path.clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.detail-path.clickable:hover {
+  color: var(--text-primary);
 }
 
 .github-link {

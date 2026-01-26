@@ -2076,7 +2076,14 @@ function App() {
               <h2>{selectedProject.name}</h2>
             </div>
             <div className="detail-path-row">
-              <span className="detail-path">{selectedProject.path}</span>
+              <button
+                className="detail-path clickable"
+                onClick={() => invoke("open_in_finder", { path: selectedProject.path })}
+                title="Open in Finder"
+              >
+                <FolderOpen size={14} />
+                {selectedProject.path}
+              </button>
               {gitInfo?.github_url && (
                 <a
                   href={gitInfo.github_url}

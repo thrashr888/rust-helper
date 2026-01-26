@@ -1829,3 +1829,12 @@ pub fn get_git_info(project_path: String) -> GitInfo {
         commit_count,
     }
 }
+
+#[tauri::command]
+pub fn open_in_finder(path: String) -> Result<(), String> {
+    Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    Ok(())
+}
