@@ -2929,6 +2929,11 @@ function App() {
               >
                 <GitBranch size={16} />
                 Git
+                {gitInfo?.commit_count ? (
+                  <span className="tab-badge">
+                    {gitInfo.commit_count.toLocaleString()}
+                  </span>
+                ) : null}
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
