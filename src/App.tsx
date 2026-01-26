@@ -41,6 +41,10 @@ import {
   GithubLogo,
   GitCommit,
   Book,
+  MagnifyingGlass,
+  HardDrive,
+  GitBranch,
+  Cpu,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -182,6 +186,71 @@ interface DocResult {
   error: string | null;
 }
 
+interface CargoFeature {
+  name: string;
+  dependencies: string[];
+  is_default: boolean;
+}
+
+interface CargoFeatures {
+  features: CargoFeature[];
+  default_features: string[];
+}
+
+interface BinaryInfo {
+  name: string;
+  debug_size: number | null;
+  release_size: number | null;
+}
+
+interface BinarySizes {
+  debug: number | null;
+  release: number | null;
+  binaries: BinaryInfo[];
+}
+
+interface MsrvInfo {
+  msrv: string | null;
+  rust_version: string | null;
+  edition: string | null;
+}
+
+interface WorkspaceMember {
+  name: string;
+  path: string;
+  is_current: boolean;
+}
+
+interface WorkspaceInfo {
+  is_workspace: boolean;
+  members: WorkspaceMember[];
+  root_path: string | null;
+}
+
+interface GitHubActionsStatus {
+  has_workflows: boolean;
+  workflows: string[];
+  badge_url: string | null;
+}
+
+interface RustVersionInfo {
+  rustc_version: string | null;
+  cargo_version: string | null;
+  default_toolchain: string | null;
+  installed_toolchains: string[];
+  active_toolchain: string | null;
+}
+
+interface SearchResult {
+  project_path: string;
+  project_name: string;
+  file_path: string;
+  line_number: number;
+  line_content: string;
+  match_start: number;
+  match_end: number;
+}
+
 interface ScanCache {
   outdated_results: OutdatedResult[] | null;
   outdated_timestamp: number | null;
@@ -305,6 +374,18 @@ function App() {
   const [docPath, setDocPath] = useState<string | null>(null);
   const [generatingDocs, setGeneratingDocs] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+
+  // New feature state
+  const [cargoFeatures, setCargoFeatures] = useState<CargoFeatures | null>(null);
+  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
+  const [binarySizes, setBinarySizes] = useState<BinarySizes | null>(null);
+  const [msrvInfo, setMsrvInfo] = useState<MsrvInfo | null>(null);
+  const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
+  const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
+  const [rustVersionInfo, setRustVersionInfo] = useState<RustVersionInfo | null>(null);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -687,16 +768,43 @@ function App() {
     setGitInfo(null);
     setDocPath(null);
     setDocError(null);
+    setCargoFeatures(null);
+    setSelectedFeatures(new Set());
+    setBinarySizes(null);
+    setMsrvInfo(null);
+    setWorkspaceInfo(null);
+    setGithubActionsStatus(null);
     setView("project-detail");
-    // Load git info in background
-    try {
-      const info = await invoke<GitInfo>("get_git_info", {
-        projectPath: project.path,
-      });
-      setGitInfo(info);
-    } catch (e) {
-      console.error("Failed to get git info:", e);
-    }
+
+    // Load project info in background (parallel)
+    const loadGitInfo = invoke<GitInfo>("get_git_info", { projectPath: project.path })
+      .then(setGitInfo)
+      .catch((e) => console.error("Failed to get git info:", e));
+
+    const loadFeatures = invoke<CargoFeatures>("get_cargo_features", { projectPath: project.path })
+      .then((features) => {
+        setCargoFeatures(features);
+        setSelectedFeatures(new Set(features.default_features));
+      })
+      .catch((e) => console.error("Failed to get cargo features:", e));
+
+    const loadBinarySizes = invoke<BinarySizes>("get_binary_sizes", { projectPath: project.path })
+      .then(setBinarySizes)
+      .catch((e) => console.error("Failed to get binary sizes:", e));
+
+    const loadMsrv = invoke<MsrvInfo>("get_msrv", { projectPath: project.path })
+      .then(setMsrvInfo)
+      .catch((e) => console.error("Failed to get MSRV:", e));
+
+    const loadWorkspace = invoke<WorkspaceInfo>("get_workspace_info", { projectPath: project.path })
+      .then(setWorkspaceInfo)
+      .catch((e) => console.error("Failed to get workspace info:", e));
+
+    const loadGitHubActions = invoke<GitHubActionsStatus>("get_github_actions_status", { projectPath: project.path })
+      .then(setGithubActionsStatus)
+      .catch((e) => console.error("Failed to get GitHub Actions status:", e));
+
+    await Promise.all([loadGitInfo, loadFeatures, loadBinarySizes, loadMsrv, loadWorkspace, loadGitHubActions]);
   };
 
   const checkProjectOutdated = async () => {
@@ -786,6 +894,39 @@ function App() {
     }
     removeJob(jobId);
     setGeneratingDocs(false);
+  };
+
+  const openInVSCode = async () => {
+    if (!selectedProject) return;
+    try {
+      await invoke("open_in_vscode", { projectPath: selectedProject.path });
+    } catch (e) {
+      console.error("Failed to open in VS Code:", e);
+    }
+  };
+
+  const loadRustVersionInfo = async () => {
+    try {
+      const info = await invoke<RustVersionInfo>("get_rust_version_info");
+      setRustVersionInfo(info);
+    } catch (e) {
+      console.error("Failed to get Rust version info:", e);
+    }
+  };
+
+  const performGlobalSearch = async () => {
+    if (!globalSearchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const results = await invoke<SearchResult[]>("global_search", {
+        query: globalSearchQuery,
+        scanRoot: scanRoot,
+      });
+      setGlobalSearchResults(results);
+    } catch (e) {
+      console.error("Failed to perform global search:", e);
+    }
+    setSearching(false);
   };
 
   // Commands that benefit from streaming output
@@ -917,6 +1058,7 @@ function App() {
 
   useEffect(() => {
     loadConfig();
+    loadRustVersionInfo();
   }, []);
 
   useEffect(() => {
@@ -1100,6 +1242,18 @@ function App() {
                 <div className="toolbar">
                   <button onClick={() => scanProjects()}>Rescan</button>
 
+                  <div className="search-box">
+                    <MagnifyingGlass size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search code across projects..."
+                      value={globalSearchQuery}
+                      onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && performGlobalSearch()}
+                    />
+                    {searching && <Spinner size={14} className="spinning" />}
+                  </div>
+
                   <div className="sort-control">
                     <label>Sort:</label>
                     <select
@@ -1136,6 +1290,47 @@ function App() {
                     Show hidden ({hidden.size})
                   </label>
                 </div>
+
+                {globalSearchResults.length > 0 && (
+                  <div className="search-results">
+                    <div className="search-results-header">
+                      <h3>Search Results ({globalSearchResults.length})</h3>
+                      <button
+                        className="small"
+                        onClick={() => setGlobalSearchResults([])}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="search-results-list">
+                      {globalSearchResults.slice(0, 20).map((result, i) => (
+                        <div
+                          key={`${result.file_path}-${result.line_number}-${i}`}
+                          className="search-result-item"
+                          onClick={() => {
+                            const project = projects.find(
+                              (p) => p.path === result.project_path
+                            );
+                            if (project) openProjectDetail(project);
+                          }}
+                        >
+                          <div className="search-result-location">
+                            <span className="search-result-project">
+                              {result.project_name}
+                            </span>
+                            <span className="search-result-file">
+                              {result.file_path.replace(result.project_path + "/", "")}
+                              :{result.line_number}
+                            </span>
+                          </div>
+                          <pre className="search-result-content">
+                            {result.line_content}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="project-grid">
                   {filteredAndSortedProjects.map((project) => (
@@ -2110,6 +2305,28 @@ function App() {
                     <ArrowLeft size={20} />
                   </button>
                   <h2>{selectedProject.name}</h2>
+                  {msrvInfo?.edition && (
+                    <span className="badge badge-muted" title="Rust Edition">
+                      {msrvInfo.edition}
+                    </span>
+                  )}
+                  {msrvInfo?.msrv && (
+                    <span className="badge badge-rust" title="Minimum Supported Rust Version">
+                      MSRV {msrvInfo.msrv}
+                    </span>
+                  )}
+                  {githubActionsStatus?.has_workflows && (
+                    <span className="badge badge-ci" title="Has GitHub Actions workflows">
+                      <GitBranch size={12} /> CI
+                    </span>
+                  )}
+                  <button
+                    className="icon-btn"
+                    onClick={openInVSCode}
+                    title="Open in VS Code"
+                  >
+                    <Code size={18} />
+                  </button>
                 </div>
                 <div className="detail-path-row">
                   <button
@@ -2134,6 +2351,24 @@ function App() {
                     </a>
                   )}
                 </div>
+                {workspaceInfo?.is_workspace && workspaceInfo.members.length > 0 && (
+                  <div className="workspace-members">
+                    <span className="workspace-label">Workspace:</span>
+                    {workspaceInfo.members.map((member) => (
+                      <button
+                        key={member.path}
+                        className={`workspace-member ${member.is_current ? "current" : ""}`}
+                        onClick={() => {
+                          const project = projects.find((p) => p.path === member.path);
+                          if (project) openProjectDetail(project);
+                        }}
+                        disabled={member.is_current}
+                      >
+                        {member.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="project-stats">
                 <div className="stat-card">
@@ -2142,6 +2377,15 @@ function App() {
                   </span>
                   <span className="stat-label">Target Size</span>
                 </div>
+                {binarySizes?.release && (
+                  <div className="stat-card">
+                    <span className="stat-value">
+                      <HardDrive size={14} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                      {formatBytes(binarySizes.release)}
+                    </span>
+                    <span className="stat-label">Release Binary</span>
+                  </div>
+                )}
                 <div className="stat-card">
                   <span className="stat-value">
                     {selectedProject.dep_count}
@@ -2440,6 +2684,40 @@ function App() {
                     </div>
                   </div>
                 </div>
+
+                {cargoFeatures && cargoFeatures.features.length > 0 && (
+                  <div className="cargo-features-section">
+                    <h4 className="command-group-label">Features</h4>
+                    <div className="feature-toggles">
+                      {cargoFeatures.features.map((feature) => (
+                        <label key={feature.name} className="feature-toggle">
+                          <input
+                            type="checkbox"
+                            checked={selectedFeatures.has(feature.name)}
+                            onChange={(e) => {
+                              const newFeatures = new Set(selectedFeatures);
+                              if (e.target.checked) {
+                                newFeatures.add(feature.name);
+                              } else {
+                                newFeatures.delete(feature.name);
+                              }
+                              setSelectedFeatures(newFeatures);
+                            }}
+                          />
+                          <span className="feature-name">{feature.name}</span>
+                          {feature.is_default && (
+                            <span className="feature-badge">default</span>
+                          )}
+                          {feature.dependencies.length > 0 && (
+                            <span className="feature-deps" title={feature.dependencies.join(", ")}>
+                              +{feature.dependencies.length}
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {runningCommand && !isStreaming && (
                   <div className="command-running">
@@ -3139,6 +3417,55 @@ function App() {
                 ))}
               </div>
             </div>
+
+            {rustVersionInfo && (
+              <div className="settings-section">
+                <h3>Rust Environment</h3>
+                <div className="rust-version-info">
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Cpu size={16} /> Rust Compiler
+                    </span>
+                    <span className="version-value">
+                      {rustVersionInfo.rustc_version || "Not installed"}
+                    </span>
+                  </div>
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Package size={16} /> Cargo
+                    </span>
+                    <span className="version-value">
+                      {rustVersionInfo.cargo_version || "Not installed"}
+                    </span>
+                  </div>
+                  {rustVersionInfo.active_toolchain && (
+                    <div className="version-row">
+                      <span className="version-label">
+                        <Wrench size={16} /> Active Toolchain
+                      </span>
+                      <span className="version-value">
+                        {rustVersionInfo.active_toolchain}
+                      </span>
+                    </div>
+                  )}
+                  {rustVersionInfo.installed_toolchains.length > 1 && (
+                    <div className="version-row">
+                      <span className="version-label">Installed Toolchains</span>
+                      <span className="version-value toolchain-list">
+                        {rustVersionInfo.installed_toolchains.map((tc) => (
+                          <span
+                            key={tc}
+                            className={`toolchain-badge ${tc === rustVersionInfo.active_toolchain ? "active" : ""}`}
+                          >
+                            {tc}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>

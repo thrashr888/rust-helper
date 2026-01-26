@@ -1868,11 +1868,10 @@ pub async fn generate_docs(project_path: String) -> DocResult {
             let cargo_toml_path = PathBuf::from(&project_path).join("Cargo.toml");
             let crate_name = fs::read_to_string(&cargo_toml_path)
                 .ok()
-                .and_then(|content| {
-                    content.parse::<toml::Table>().ok()
-                })
+                .and_then(|content| content.parse::<toml::Table>().ok())
                 .and_then(|table| {
-                    table.get("package")
+                    table
+                        .get("package")
                         .and_then(|p| p.get("name"))
                         .and_then(|n| n.as_str())
                         .map(|s| s.replace("-", "_"))
@@ -1911,4 +1910,522 @@ pub async fn generate_docs(project_path: String) -> DocResult {
             error: Some("Failed to run cargo doc".to_string()),
         },
     }
+}
+
+// === New Features ===
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CargoFeature {
+    pub name: String,
+    pub dependencies: Vec<String>,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CargoFeatures {
+    pub features: Vec<CargoFeature>,
+    pub default_features: Vec<String>,
+}
+
+#[tauri::command]
+pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String> {
+    let path = PathBuf::from(&project_path).join("Cargo.toml");
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let table: toml::Table = content.parse().map_err(|e: toml::de::Error| e.to_string())?;
+
+    let mut features = Vec::new();
+    let mut default_features = Vec::new();
+
+    if let Some(features_table) = table.get("features").and_then(|f| f.as_table()) {
+        // Get default features first
+        if let Some(default) = features_table.get("default").and_then(|d| d.as_array()) {
+            default_features = default
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+        }
+
+        for (name, deps) in features_table {
+            if name == "default" {
+                continue;
+            }
+            let dependencies = deps
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            features.push(CargoFeature {
+                name: name.clone(),
+                dependencies,
+                is_default: default_features.contains(name),
+            });
+        }
+    }
+
+    // Sort features alphabetically
+    features.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(CargoFeatures {
+        features,
+        default_features,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinarySizes {
+    pub debug: Option<u64>,
+    pub release: Option<u64>,
+    pub binaries: Vec<BinaryInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinaryInfo {
+    pub name: String,
+    pub debug_size: Option<u64>,
+    pub release_size: Option<u64>,
+}
+
+#[tauri::command]
+pub fn get_binary_sizes(project_path: String) -> BinarySizes {
+    let path = PathBuf::from(&project_path);
+    let debug_dir = path.join("target").join("debug");
+    let release_dir = path.join("target").join("release");
+
+    // Get crate name from Cargo.toml
+    let cargo_toml_path = path.join("Cargo.toml");
+    let crate_name = fs::read_to_string(&cargo_toml_path)
+        .ok()
+        .and_then(|content| content.parse::<toml::Table>().ok())
+        .and_then(|table| {
+            table
+                .get("package")
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .map(String::from)
+        });
+
+    let mut binaries = Vec::new();
+
+    if let Some(name) = &crate_name {
+        let debug_binary = debug_dir.join(name);
+        let release_binary = release_dir.join(name);
+
+        let debug_size = fs::metadata(&debug_binary).ok().map(|m| m.len());
+        let release_size = fs::metadata(&release_binary).ok().map(|m| m.len());
+
+        binaries.push(BinaryInfo {
+            name: name.clone(),
+            debug_size,
+            release_size,
+        });
+    }
+
+    // Also check for additional binaries in src/bin/
+    let bin_dir = path.join("src").join("bin");
+    if bin_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&bin_dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name();
+                let name = file_name.to_string_lossy();
+                if name.ends_with(".rs") {
+                    let bin_name = name.trim_end_matches(".rs");
+                    let debug_binary = debug_dir.join(bin_name);
+                    let release_binary = release_dir.join(bin_name);
+
+                    binaries.push(BinaryInfo {
+                        name: bin_name.to_string(),
+                        debug_size: fs::metadata(&debug_binary).ok().map(|m| m.len()),
+                        release_size: fs::metadata(&release_binary).ok().map(|m| m.len()),
+                    });
+                }
+            }
+        }
+    }
+
+    let debug_total = binaries.iter().filter_map(|b| b.debug_size).sum();
+    let release_total = binaries.iter().filter_map(|b| b.release_size).sum();
+
+    BinarySizes {
+        debug: if debug_total > 0 {
+            Some(debug_total)
+        } else {
+            None
+        },
+        release: if release_total > 0 {
+            Some(release_total)
+        } else {
+            None
+        },
+        binaries,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MsrvInfo {
+    pub msrv: Option<String>,
+    pub rust_version: Option<String>,
+    pub edition: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_msrv(project_path: String) -> MsrvInfo {
+    let path = PathBuf::from(&project_path).join("Cargo.toml");
+    let content = fs::read_to_string(&path).ok();
+
+    content
+        .and_then(|c| c.parse::<toml::Table>().ok())
+        .map(|table| {
+            let package = table.get("package").and_then(|p| p.as_table());
+            MsrvInfo {
+                msrv: package
+                    .and_then(|p| p.get("rust-version"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                rust_version: package
+                    .and_then(|p| p.get("rust-version"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                edition: package
+                    .and_then(|p| p.get("edition"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            }
+        })
+        .unwrap_or(MsrvInfo {
+            msrv: None,
+            rust_version: None,
+            edition: None,
+        })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceInfo {
+    pub is_workspace: bool,
+    pub members: Vec<WorkspaceMember>,
+    pub root_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceMember {
+    pub name: String,
+    pub path: String,
+    pub is_current: bool,
+}
+
+#[tauri::command]
+pub fn get_workspace_info(project_path: String) -> WorkspaceInfo {
+    let path = PathBuf::from(&project_path);
+    let cargo_toml = path.join("Cargo.toml");
+
+    let content = fs::read_to_string(&cargo_toml).ok();
+    let table = content.and_then(|c| c.parse::<toml::Table>().ok());
+
+    if let Some(table) = table {
+        // Check if this is a workspace root
+        if let Some(workspace) = table.get("workspace").and_then(|w| w.as_table()) {
+            if let Some(members) = workspace.get("members").and_then(|m| m.as_array()) {
+                let member_list: Vec<WorkspaceMember> = members
+                    .iter()
+                    .filter_map(|m| m.as_str())
+                    .flat_map(|pattern| {
+                        // Handle glob patterns
+                        if pattern.contains('*') {
+                            glob::glob(&path.join(pattern).to_string_lossy())
+                                .ok()
+                                .map(|paths| {
+                                    paths
+                                        .flatten()
+                                        .filter_map(|p| {
+                                            let member_cargo = p.join("Cargo.toml");
+                                            if member_cargo.exists() {
+                                                let name = fs::read_to_string(&member_cargo)
+                                                    .ok()
+                                                    .and_then(|c| c.parse::<toml::Table>().ok())
+                                                    .and_then(|t| {
+                                                        t.get("package")
+                                                            .and_then(|p| p.get("name"))
+                                                            .and_then(|n| n.as_str())
+                                                            .map(String::from)
+                                                    })
+                                                    .unwrap_or_else(|| {
+                                                        p.file_name()
+                                                            .map(|n| n.to_string_lossy().to_string())
+                                                            .unwrap_or_default()
+                                                    });
+                                                Some(WorkspaceMember {
+                                                    name,
+                                                    path: p.to_string_lossy().to_string(),
+                                                    is_current: p == path,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            let member_path = path.join(pattern);
+                            let member_cargo = member_path.join("Cargo.toml");
+                            if member_cargo.exists() {
+                                let name = fs::read_to_string(&member_cargo)
+                                    .ok()
+                                    .and_then(|c| c.parse::<toml::Table>().ok())
+                                    .and_then(|t| {
+                                        t.get("package")
+                                            .and_then(|p| p.get("name"))
+                                            .and_then(|n| n.as_str())
+                                            .map(String::from)
+                                    })
+                                    .unwrap_or_else(|| pattern.to_string());
+                                vec![WorkspaceMember {
+                                    name,
+                                    path: member_path.to_string_lossy().to_string(),
+                                    is_current: member_path == path,
+                                }]
+                            } else {
+                                vec![]
+                            }
+                        }
+                    })
+                    .collect();
+
+                return WorkspaceInfo {
+                    is_workspace: true,
+                    members: member_list,
+                    root_path: Some(project_path),
+                };
+            }
+        }
+    }
+
+    WorkspaceInfo {
+        is_workspace: false,
+        members: vec![],
+        root_path: None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubActionsStatus {
+    pub has_workflows: bool,
+    pub workflows: Vec<String>,
+    pub badge_url: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_github_actions_status(project_path: String) -> GitHubActionsStatus {
+    let path = PathBuf::from(&project_path);
+    let workflows_dir = path.join(".github").join("workflows");
+
+    if !workflows_dir.exists() {
+        return GitHubActionsStatus {
+            has_workflows: false,
+            workflows: vec![],
+            badge_url: None,
+        };
+    }
+
+    let workflows: Vec<String> = fs::read_dir(&workflows_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".yml") || name.ends_with(".yaml") {
+                        Some(name)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Try to get GitHub URL for badge
+    let git_info = get_git_info(project_path);
+    let badge_url = git_info.github_url.map(|url| {
+        let repo = url.replace("https://github.com/", "");
+        format!(
+            "https://github.com/{}/actions/workflows/ci.yml/badge.svg",
+            repo
+        )
+    });
+
+    GitHubActionsStatus {
+        has_workflows: !workflows.is_empty(),
+        workflows,
+        badge_url,
+    }
+}
+
+#[tauri::command]
+pub fn open_in_vscode(project_path: String) -> Result<(), String> {
+    Command::new("code")
+        .arg(&project_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open VS Code: {}", e))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RustVersionInfo {
+    pub rustc_version: Option<String>,
+    pub cargo_version: Option<String>,
+    pub default_toolchain: Option<String>,
+    pub installed_toolchains: Vec<String>,
+    pub active_toolchain: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_rust_version_info() -> RustVersionInfo {
+    // Get rustc version
+    let rustc_version = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    // Get cargo version
+    let cargo_version = Command::new("cargo")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    // Get installed toolchains
+    let toolchains_output = Command::new("rustup")
+        .args(["toolchain", "list"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok());
+
+    let mut installed_toolchains = Vec::new();
+    let mut default_toolchain = None;
+    let mut active_toolchain = None;
+
+    if let Some(output) = toolchains_output {
+        for line in output.lines() {
+            let is_default = line.contains("(default)");
+            let is_active = line.contains("(active)") || line.contains("(default)");
+            let name = line
+                .replace("(default)", "")
+                .replace("(active)", "")
+                .trim()
+                .to_string();
+
+            if !name.is_empty() {
+                if is_default {
+                    default_toolchain = Some(name.clone());
+                }
+                if is_active {
+                    active_toolchain = Some(name.clone());
+                }
+                installed_toolchains.push(name);
+            }
+        }
+    }
+
+    RustVersionInfo {
+        rustc_version,
+        cargo_version,
+        default_toolchain,
+        installed_toolchains,
+        active_toolchain,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub project_path: String,
+    pub project_name: String,
+    pub file_path: String,
+    pub line_number: u32,
+    pub line_content: String,
+    pub match_start: u32,
+    pub match_end: u32,
+}
+
+#[tauri::command]
+pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<SearchResult> {
+    let root = scan_root.unwrap_or_else(|| {
+        dirs::home_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string())
+    });
+
+    let mut results = Vec::new();
+
+    // Use ripgrep if available, otherwise fall back to manual search
+    let rg_output = Command::new("rg")
+        .args([
+            "--json",
+            "--max-count",
+            "50",
+            "--type",
+            "rust",
+            &query,
+            &root,
+        ])
+        .output()
+        .ok();
+
+    if let Some(output) = rg_output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                    if json.get("type").and_then(|t| t.as_str()) == Some("match") {
+                        if let Some(data) = json.get("data") {
+                            let file_path = data
+                                .get("path")
+                                .and_then(|p| p.get("text"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
+
+                            // Find the project root (directory with Cargo.toml)
+                            let mut project_path = PathBuf::from(file_path);
+                            let mut project_name = String::new();
+                            while project_path.pop() {
+                                if project_path.join("Cargo.toml").exists() {
+                                    project_name = project_path
+                                        .file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_default();
+                                    break;
+                                }
+                            }
+
+                            if let Some(lines) = data.get("lines").and_then(|l| l.get("text")) {
+                                let line_content = lines.as_str().unwrap_or("").trim().to_string();
+                                let line_number = data
+                                    .get("line_number")
+                                    .and_then(|n| n.as_u64())
+                                    .unwrap_or(0) as u32;
+
+                                results.push(SearchResult {
+                                    project_path: project_path.to_string_lossy().to_string(),
+                                    project_name,
+                                    file_path: file_path.to_string(),
+                                    line_number,
+                                    line_content,
+                                    match_start: 0,
+                                    match_end: query.len() as u32,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    results
 }

@@ -3,14 +3,15 @@ mod commands;
 use commands::{
     add_recent_project, analyze_dependencies, analyze_toolchains, check_all_audits,
     check_all_licenses, check_all_outdated, check_audit, check_licenses, check_outdated,
-    check_required_tools, clean_project, clean_projects, generate_docs, get_cache,
-    get_default_scan_root, get_favorites, get_git_info, get_hidden, get_recent_projects,
-    get_scan_root, install_tool, open_in_finder, read_cargo_toml, run_cargo_bench,
-    run_cargo_build, run_cargo_check, run_cargo_clippy, run_cargo_command,
-    run_cargo_command_streaming, run_cargo_doc, run_cargo_fmt_check, run_cargo_run,
-    run_cargo_test, run_cargo_tree, run_cargo_update, save_audit_cache, save_dep_analysis_cache,
-    save_license_cache, save_outdated_cache, save_toolchain_cache, scan_projects, set_favorite,
-    set_hidden, set_scan_root,
+    check_required_tools, clean_project, clean_projects, generate_docs, get_binary_sizes,
+    get_cache, get_cargo_features, get_default_scan_root, get_favorites, get_git_info,
+    get_github_actions_status, get_hidden, get_msrv, get_recent_projects, get_rust_version_info,
+    get_scan_root, get_workspace_info, global_search, install_tool, open_in_finder, open_in_vscode,
+    read_cargo_toml, run_cargo_bench, run_cargo_build, run_cargo_check, run_cargo_clippy,
+    run_cargo_command, run_cargo_command_streaming, run_cargo_doc, run_cargo_fmt_check,
+    run_cargo_run, run_cargo_test, run_cargo_tree, run_cargo_update, save_audit_cache,
+    save_dep_analysis_cache, save_license_cache, save_outdated_cache, save_toolchain_cache,
+    scan_projects, set_favorite, set_hidden, set_scan_root,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -73,7 +74,15 @@ pub fn run() {
             read_cargo_toml,
             get_git_info,
             open_in_finder,
-            generate_docs
+            generate_docs,
+            get_cargo_features,
+            get_binary_sizes,
+            get_msrv,
+            get_workspace_info,
+            get_github_actions_status,
+            open_in_vscode,
+            get_rust_version_info,
+            global_search
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

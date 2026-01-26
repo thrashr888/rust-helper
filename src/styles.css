@@ -1436,3 +1436,274 @@ button svg {
   color: var(--success);
   font-size: 13px;
 }
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-muted {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.badge-rust {
+  background: #b7410e22;
+  color: #e25822;
+}
+
+.badge-ci {
+  background: #238636aa;
+  color: #3fb950;
+}
+
+/* Workspace members */
+.workspace-members {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.workspace-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.workspace-member {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.workspace-member:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+}
+
+.workspace-member.current {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  cursor: default;
+}
+
+/* Search box */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.search-box input::placeholder {
+  color: var(--text-secondary);
+}
+
+/* Cargo features */
+.cargo-features-section {
+  margin-bottom: 24px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.feature-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feature-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.feature-toggle:hover {
+  background: var(--bg-primary);
+}
+
+.feature-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.feature-name {
+  color: var(--text-primary);
+}
+
+.feature-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 3px;
+}
+
+.feature-deps {
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding: 1px 5px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+
+/* Rust version info */
+.rust-version-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.version-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.version-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.version-value {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.toolchain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toolchain-badge {
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.toolchain-badge.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+/* Header row with badges */
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.header-row h2 {
+  margin-bottom: 0;
+}
+
+/* Search results */
+.search-results {
+  margin-bottom: 24px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.search-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.search-results-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.search-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.search-result-item {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.search-result-item:hover {
+  background: var(--bg-primary);
+}
+
+.search-result-location {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.search-result-project {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.search-result-file {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.search-result-content {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
