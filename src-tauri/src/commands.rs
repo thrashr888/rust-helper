@@ -1767,3 +1767,65 @@ pub fn read_cargo_toml(project_path: String) -> Result<String, String> {
     let path = PathBuf::from(&project_path).join("Cargo.toml");
     fs::read_to_string(&path).map_err(|e| format!("Failed to read Cargo.toml: {}", e))
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitInfo {
+    pub remote_url: Option<String>,
+    pub github_url: Option<String>,
+    pub commit_count: u32,
+}
+
+#[tauri::command]
+pub fn get_git_info(project_path: String) -> GitInfo {
+    let path = PathBuf::from(&project_path);
+
+    // Get remote URL
+    let remote_url = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        });
+
+    // Convert to GitHub HTTPS URL if it's a git URL
+    let github_url = remote_url.as_ref().and_then(|url| {
+        if url.contains("github.com") {
+            let clean = url
+                .replace("git@github.com:", "https://github.com/")
+                .replace(".git", "");
+            Some(clean)
+        } else {
+            None
+        }
+    });
+
+    // Get commit count
+    let commit_count = Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+    GitInfo {
+        remote_url,
+        github_url,
+        commit_count,
+    }
+}

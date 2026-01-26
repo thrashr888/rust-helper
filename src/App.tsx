@@ -38,6 +38,8 @@ import {
   Tree,
   Timer,
   Scroll,
+  GithubLogo,
+  GitCommit,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -166,6 +168,12 @@ interface LicenseAnalysis {
   problematic_count: number;
 }
 
+interface GitInfo {
+  remote_url: string | null;
+  github_url: string | null;
+  commit_count: number;
+}
+
 interface ScanCache {
   outdated_results: OutdatedResult[] | null;
   outdated_timestamp: number | null;
@@ -285,6 +293,7 @@ function App() {
   const [checkingProjectLicenses, setCheckingProjectLicenses] = useState(false);
   const [cargoTomlContent, setCargoTomlContent] = useState<string | null>(null);
   const [loadingCargoToml, setLoadingCargoToml] = useState(false);
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -658,7 +667,7 @@ function App() {
     setCheckingAudit(false);
   };
 
-  const openProjectDetail = (project: Project) => {
+  const openProjectDetail = async (project: Project) => {
     setSelectedProject(project);
     setCommandOutput(null);
     setProjectDetailTab("commands");
@@ -666,7 +675,17 @@ function App() {
     setProjectAudit(null);
     setProjectLicenses(null);
     setCargoTomlContent(null);
+    setGitInfo(null);
     setView("project-detail");
+    // Load git info in background
+    try {
+      const info = await invoke<GitInfo>("get_git_info", {
+        projectPath: project.path,
+      });
+      setGitInfo(info);
+    } catch (e) {
+      console.error("Failed to get git info:", e);
+    }
   };
 
   const checkProjectOutdated = async () => {
@@ -2057,6 +2076,17 @@ function App() {
               <h2>{selectedProject.name}</h2>
             </div>
             <p className="detail-path">{selectedProject.path}</p>
+            {gitInfo?.github_url && (
+              <a
+                href={gitInfo.github_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="github-link"
+              >
+                <GithubLogo size={16} weight="fill" />
+                {gitInfo.github_url.replace("https://github.com/", "")}
+              </a>
+            )}
 
             <div className="project-stats">
               <div className="stat-card">
@@ -2075,6 +2105,15 @@ function App() {
                 </span>
                 <span className="stat-label">Last Modified</span>
               </div>
+              {gitInfo && (
+                <div className="stat-card">
+                  <span className="stat-value">
+                    <GitCommit size={16} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                    {gitInfo.commit_count.toLocaleString()}
+                  </span>
+                  <span className="stat-label">Commits</span>
+                </div>
+              )}
             </div>
 
             <div className="detail-tabs">

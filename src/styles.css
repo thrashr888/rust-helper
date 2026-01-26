@@ -763,8 +763,23 @@ button svg {
 .detail-path {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 24px;
+  margin-bottom: 8px;
   word-break: break-all;
+}
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  margin-bottom: 24px;
+  transition: color 0.15s;
+}
+
+.github-link:hover {
+  color: var(--text-primary);
 }
 
 .command-grid {
