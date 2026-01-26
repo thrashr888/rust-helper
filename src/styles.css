@@ -933,10 +933,26 @@ button svg {
 }
 
 .project-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.project-stats .stat-card {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-stats .stat-value {
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.project-stats .stat-label {
+  font-size: 11px;
 }
 
 /* Analysis view */
