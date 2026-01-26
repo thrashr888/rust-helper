@@ -2287,7 +2287,7 @@ function App() {
                     <h4 className="command-group-label">Testing</h4>
                     <div className="command-grid">
                       <button
-                        onClick={() => runCargoCommand("test", ["--quiet"])}
+                        onClick={() => runCargoCommand("test", ["--color", "always"])}
                         disabled={runningCommand !== null}
                         className="command-btn"
                       >
