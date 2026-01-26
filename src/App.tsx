@@ -193,6 +193,14 @@ interface GitTag {
   commit_hash: string;
 }
 
+interface GitStats {
+  contributors: number;
+  commits: number;
+  branches: number;
+  tags: number;
+  first_commit_date: string | null;
+}
+
 interface DocResult {
   success: boolean;
   doc_path: string | null;
@@ -448,6 +456,7 @@ function App() {
   const [loadingCargoToml, setLoadingCargoToml] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [gitTags, setGitTags] = useState<GitTag[]>([]);
+  const [gitStats, setGitStats] = useState<GitStats | null>(null);
   const [loadingGitTags, setLoadingGitTags] = useState(false);
   const [docPath, setDocPath] = useState<string | null>(null);
   const [generatingDocs, setGeneratingDocs] = useState(false);
@@ -927,6 +936,7 @@ function App() {
     setGithubActionsStatus(null);
     setBloatAnalysis(null);
     setGitTags([]);
+    setGitStats(null);
     setView("project-detail");
 
     // Load project info in background (parallel)
@@ -1030,13 +1040,18 @@ function App() {
     if (!selectedProject) return;
     setLoadingGitTags(true);
     try {
-      const tags = await invoke<GitTag[]>("get_git_tags", {
-        projectPath: selectedProject.path,
-      });
+      const [tags, stats] = await Promise.all([
+        invoke<GitTag[]>("get_git_tags", { projectPath: selectedProject.path }),
+        invoke<GitStats>("get_git_stats", {
+          projectPath: selectedProject.path,
+        }),
+      ]);
       setGitTags(tags);
+      setGitStats(stats);
     } catch (e) {
-      console.error("Failed to load git tags:", e);
+      console.error("Failed to load git history:", e);
       setGitTags([]);
+      setGitStats(null);
     }
     setLoadingGitTags(false);
   };
@@ -2942,7 +2957,14 @@ function App() {
                 }}
               >
                 <Tag size={16} />
-                History {gitInfo?.commit_count ? `(${gitInfo.commit_count.toLocaleString()})` : ""}
+                History{" "}
+                {gitInfo?.commit_count ? (
+                  <span className="tab-badge">
+                    {gitInfo.commit_count.toLocaleString()}
+                  </span>
+                ) : (
+                  ""
+                )}
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
@@ -3295,7 +3317,12 @@ function App() {
                       setCoverageError(null);
                       setCoverageResult(null);
                       setRunningCoverage(true);
-                      runCargoCommand("tarpaulin", ["--out", "Json", "--output-dir", "target"]);
+                      runCargoCommand("tarpaulin", [
+                        "--out",
+                        "Json",
+                        "--output-dir",
+                        "target",
+                      ]);
                     }}
                     disabled={runningCommand !== null || runningCoverage}
                     className="test-btn"
@@ -3316,15 +3343,18 @@ function App() {
                     commandOutput.command === "bench" ||
                     commandOutput.command === "tarpaulin")) ||
                 (isStreaming &&
-                  (runningCommand === "test" || runningCommand === "bench" || runningCommand === "tarpaulin")) ? (
+                  (runningCommand === "test" ||
+                    runningCommand === "bench" ||
+                    runningCommand === "tarpaulin")) ? (
                   <div className="test-results">
                     <div className="test-results-header">
                       <h4>
                         {(commandOutput?.command || runningCommand) === "test"
                           ? "Test Results"
-                          : (commandOutput?.command || runningCommand) === "tarpaulin"
-                          ? "Coverage Output"
-                          : "Benchmark Results"}
+                          : (commandOutput?.command || runningCommand) ===
+                              "tarpaulin"
+                            ? "Coverage Output"
+                            : "Benchmark Results"}
                       </h4>
                       {commandOutput && !isStreaming ? (
                         <span
@@ -3964,6 +3994,57 @@ function App() {
                     Refresh
                   </button>
                 </div>
+                {gitStats && (
+                  <div className="history-stats">
+                    <div className="history-stat">
+                      <span className="history-stat-value">
+                        {gitStats.contributors}
+                      </span>
+                      <span className="history-stat-label">contributors</span>
+                    </div>
+                    <div className="history-stat">
+                      <span className="history-stat-value">
+                        {gitStats.commits.toLocaleString()}
+                      </span>
+                      <span className="history-stat-label">commits</span>
+                    </div>
+                    <div className="history-stat">
+                      <span className="history-stat-value">
+                        {gitStats.branches}
+                      </span>
+                      <span className="history-stat-label">branches</span>
+                    </div>
+                    <div className="history-stat">
+                      <span className="history-stat-value">
+                        {gitStats.tags}
+                      </span>
+                      <span className="history-stat-label">tags</span>
+                    </div>
+                    {gitStats.first_commit_date && (
+                      <div className="history-stat">
+                        <span className="history-stat-value">
+                          {(() => {
+                            const firstDate = new Date(
+                              gitStats.first_commit_date,
+                            );
+                            const now = new Date();
+                            const years = Math.floor(
+                              (now.getTime() - firstDate.getTime()) /
+                                (365.25 * 24 * 60 * 60 * 1000),
+                            );
+                            const months = Math.floor(
+                              (now.getTime() - firstDate.getTime()) /
+                                (30.44 * 24 * 60 * 60 * 1000),
+                            );
+                            if (years >= 1) return `${years}y`;
+                            return `${months}mo`;
+                          })()}
+                        </span>
+                        <span className="history-stat-label">age</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {loadingGitTags ? (
                   <div className="empty-state">
                     <Spinner size={24} className="spinning" />

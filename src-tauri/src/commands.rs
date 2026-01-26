@@ -1797,6 +1797,83 @@ pub struct GitTag {
     pub commit_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitStats {
+    pub contributors: u32,
+    pub commits: u32,
+    pub branches: u32,
+    pub tags: u32,
+    pub first_commit_date: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_git_stats(project_path: String) -> GitStats {
+    let path = PathBuf::from(&project_path);
+
+    // Get contributor count
+    let contributors = Command::new("git")
+        .args(["shortlog", "-sn", "--all"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().count() as u32)
+        .unwrap_or(0);
+
+    // Get commit count
+    let commits = Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0);
+
+    // Get branch count
+    let branches = Command::new("git")
+        .args(["branch", "-a"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().count() as u32)
+        .unwrap_or(0);
+
+    // Get tag count
+    let tags = Command::new("git")
+        .args(["tag", "-l"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .count() as u32
+        })
+        .unwrap_or(0);
+
+    // Get first commit date
+    let first_commit_date = Command::new("git")
+        .args(["log", "--reverse", "--format=%cI", "-1"])
+        .current_dir(&path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        });
+
+    GitStats {
+        contributors,
+        commits,
+        branches,
+        tags,
+        first_commit_date,
+    }
+}
+
 #[tauri::command]
 pub fn get_git_tags(project_path: String) -> Vec<GitTag> {
     let path = PathBuf::from(&project_path);

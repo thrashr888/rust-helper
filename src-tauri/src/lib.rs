@@ -5,15 +5,15 @@ use commands::{
     check_all_licenses, check_all_outdated, check_audit, check_homebrew_status, check_licenses,
     check_outdated, check_required_tools, check_rust_homebrew_status, clean_project,
     clean_projects, generate_docs, get_binary_sizes, get_cache, get_cargo_features,
-    get_default_scan_root, get_favorites, get_git_info, get_git_tags, get_github_actions_status, get_hidden,
-    get_msrv, get_recent_projects, get_rust_version_info, get_scan_root, get_workspace_info,
-    global_search, install_tool, open_file_in_vscode, open_in_finder, open_in_vscode,
-    read_cargo_toml, run_cargo_bench, run_cargo_build, run_cargo_check, run_cargo_clippy,
-    run_cargo_command, run_cargo_command_streaming, run_cargo_doc, run_cargo_fmt_check,
-    run_cargo_run, run_cargo_tarpaulin, run_cargo_test, run_cargo_tree, run_cargo_update, read_tarpaulin_results,
-    save_audit_cache, save_dep_analysis_cache, save_license_cache, save_outdated_cache,
-    save_toolchain_cache, scan_projects, set_favorite, set_hidden, set_scan_root, upgrade_homebrew,
-    upgrade_rust_homebrew,
+    get_default_scan_root, get_favorites, get_git_info, get_git_stats, get_git_tags,
+    get_github_actions_status, get_hidden, get_msrv, get_recent_projects, get_rust_version_info,
+    get_scan_root, get_workspace_info, global_search, install_tool, open_file_in_vscode,
+    open_in_finder, open_in_vscode, read_cargo_toml, run_cargo_bench, run_cargo_build,
+    run_cargo_check, run_cargo_clippy, run_cargo_command, run_cargo_command_streaming,
+    run_cargo_doc, run_cargo_fmt_check, run_cargo_run, run_cargo_tarpaulin, run_cargo_test,
+    run_cargo_tree, run_cargo_update, read_tarpaulin_results, save_audit_cache,
+    save_dep_analysis_cache, save_license_cache, save_outdated_cache, save_toolchain_cache,
+    scan_projects, set_favorite, set_hidden, set_scan_root, upgrade_homebrew, upgrade_rust_homebrew,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -95,7 +95,8 @@ pub fn run() {
             analyze_bloat,
             run_cargo_tarpaulin,
             read_tarpaulin_results,
-            get_git_tags
+            get_git_tags,
+            get_git_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
