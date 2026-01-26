@@ -70,7 +70,7 @@ type ProjectDetailTab =
   | "dependencies"
   | "security"
   | "licenses"
-  | "history"
+  | "git"
   | "cargo-toml"
   | "docs";
 
@@ -2921,21 +2921,14 @@ function App() {
                 Licenses
               </button>
               <button
-                className={`detail-tab ${projectDetailTab === "history" ? "active" : ""}`}
+                className={`detail-tab ${projectDetailTab === "git" ? "active" : ""}`}
                 onClick={() => {
-                  setProjectDetailTab("history");
+                  setProjectDetailTab("git");
                   if (gitTags.length === 0) loadGitTags();
                 }}
               >
-                <Tag size={16} />
-                History{" "}
-                {gitInfo?.commit_count ? (
-                  <span className="tab-badge">
-                    {gitInfo.commit_count.toLocaleString()}
-                  </span>
-                ) : (
-                  ""
-                )}
+                <GitBranch size={16} />
+                Git
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
@@ -3949,7 +3942,7 @@ function App() {
               </div>
             )}
 
-            {projectDetailTab === "history" && (
+            {projectDetailTab === "git" && (
               <div className="detail-tab-content history-tab">
                 <div className="toolbar">
                   <button
@@ -3990,6 +3983,12 @@ function App() {
                         {gitStats.tags}
                       </span>
                       <span className="history-stat-label">tags</span>
+                    </div>
+                    <div className="history-stat">
+                      <span className="history-stat-value">
+                        {gitTags.length}
+                      </span>
+                      <span className="history-stat-label">releases</span>
                     </div>
                     {gitStats.first_commit_date && (
                       <div className="history-stat">
