@@ -3300,6 +3300,55 @@ function App() {
           <>
             <h2>Settings</h2>
 
+            {rustVersionInfo && (
+              <div className="settings-section">
+                <h3>Rust Environment</h3>
+                <div className="rust-version-info">
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Cpu size={16} /> Rust Compiler
+                    </span>
+                    <span className="version-value">
+                      {rustVersionInfo.rustc_version || "Not installed"}
+                    </span>
+                  </div>
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Package size={16} /> Cargo
+                    </span>
+                    <span className="version-value">
+                      {rustVersionInfo.cargo_version || "Not installed"}
+                    </span>
+                  </div>
+                  {rustVersionInfo.active_toolchain && (
+                    <div className="version-row">
+                      <span className="version-label">
+                        <Wrench size={16} /> Active Toolchain
+                      </span>
+                      <span className="version-value">
+                        {rustVersionInfo.active_toolchain}
+                      </span>
+                    </div>
+                  )}
+                  {rustVersionInfo.installed_toolchains.length > 1 && (
+                    <div className="version-row">
+                      <span className="version-label">Installed Toolchains</span>
+                      <span className="version-value toolchain-list">
+                        {rustVersionInfo.installed_toolchains.map((tc) => (
+                          <span
+                            key={tc}
+                            className={`toolchain-badge ${tc === rustVersionInfo.active_toolchain ? "active" : ""}`}
+                          >
+                            {tc}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="settings-section">
               <h3>Scan Directory</h3>
               <p className="settings-description">
@@ -3427,55 +3476,6 @@ function App() {
                 ))}
               </div>
             </div>
-
-            {rustVersionInfo && (
-              <div className="settings-section">
-                <h3>Rust Environment</h3>
-                <div className="rust-version-info">
-                  <div className="version-row">
-                    <span className="version-label">
-                      <Cpu size={16} /> Rust Compiler
-                    </span>
-                    <span className="version-value">
-                      {rustVersionInfo.rustc_version || "Not installed"}
-                    </span>
-                  </div>
-                  <div className="version-row">
-                    <span className="version-label">
-                      <Package size={16} /> Cargo
-                    </span>
-                    <span className="version-value">
-                      {rustVersionInfo.cargo_version || "Not installed"}
-                    </span>
-                  </div>
-                  {rustVersionInfo.active_toolchain && (
-                    <div className="version-row">
-                      <span className="version-label">
-                        <Wrench size={16} /> Active Toolchain
-                      </span>
-                      <span className="version-value">
-                        {rustVersionInfo.active_toolchain}
-                      </span>
-                    </div>
-                  )}
-                  {rustVersionInfo.installed_toolchains.length > 1 && (
-                    <div className="version-row">
-                      <span className="version-label">Installed Toolchains</span>
-                      <span className="version-value toolchain-list">
-                        {rustVersionInfo.installed_toolchains.map((tc) => (
-                          <span
-                            key={tc}
-                            className={`toolchain-badge ${tc === rustVersionInfo.active_toolchain ? "active" : ""}`}
-                          >
-                            {tc}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </>
         )}
       </main>
