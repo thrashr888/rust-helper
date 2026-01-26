@@ -1802,12 +1802,12 @@ pub fn get_git_tags(project_path: String) -> Vec<GitTag> {
     let path = PathBuf::from(&project_path);
     let mut tags = Vec::new();
 
-    // Get all tags with their info using git for-each-ref
+    // Get all tags with basic info using git for-each-ref
     let output = Command::new("git")
         .args([
             "for-each-ref",
             "--sort=-creatordate",
-            "--format=%(refname:short)|%(subject)|%(creatordate:iso-strict)|%(objectname:short)",
+            "--format=%(refname:short)|%(creatordate:iso-strict)|%(objectname:short)",
             "refs/tags",
         ])
         .current_dir(&path)
@@ -1817,13 +1817,30 @@ pub fn get_git_tags(project_path: String) -> Vec<GitTag> {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
-                let parts: Vec<&str> = line.splitn(4, '|').collect();
-                if parts.len() >= 4 {
+                let parts: Vec<&str> = line.splitn(3, '|').collect();
+                if parts.len() >= 3 {
+                    let tag_name = parts[0].to_string();
+
+                    // Get full tag message using git tag -l --format
+                    let message = Command::new("git")
+                        .args(["tag", "-l", "--format=%(contents)", &tag_name])
+                        .current_dir(&path)
+                        .output()
+                        .ok()
+                        .and_then(|o| {
+                            if o.status.success() {
+                                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+
                     tags.push(GitTag {
-                        name: parts[0].to_string(),
-                        message: parts[1].to_string(),
-                        date: parts[2].to_string(),
-                        commit_hash: parts[3].to_string(),
+                        name: tag_name,
+                        message,
+                        date: parts[1].to_string(),
+                        commit_hash: parts[2].to_string(),
                     });
                 }
             }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import Markdown from "react-markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import AnsiToHtml from "ansi-to-html";
@@ -2872,14 +2873,6 @@ function App() {
                     </span>
                   </div>
                 )}
-                {gitInfo && (
-                  <div className="stat-row">
-                    <span className="stat-label">Commits</span>
-                    <span className="stat-value">
-                      {gitInfo.commit_count.toLocaleString()}
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -2949,7 +2942,7 @@ function App() {
                 }}
               >
                 <Tag size={16} />
-                History {gitTags.length > 0 && `(${gitTags.length})`}
+                History {gitInfo?.commit_count ? `(${gitInfo.commit_count.toLocaleString()})` : ""}
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
@@ -3981,10 +3974,23 @@ function App() {
                     {gitTags.map((tag, index) => (
                       <div key={tag.commit_hash} className="history-item">
                         <div className="history-header">
-                          <span className="history-version">
+                          <a
+                            href={
+                              gitInfo?.github_url
+                                ? `${gitInfo.github_url}/releases/tag/${tag.name}`
+                                : "#"
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="history-version"
+                            onClick={(e) => {
+                              if (!gitInfo?.github_url) e.preventDefault();
+                            }}
+                          >
                             <Tag size={16} />
                             {tag.name}
-                          </span>
+                            {gitInfo?.github_url && <GithubLogo size={14} />}
+                          </a>
                           <span className="history-date">
                             {new Date(tag.date).toLocaleDateString(undefined, {
                               year: "numeric",
@@ -3994,7 +4000,9 @@ function App() {
                           </span>
                         </div>
                         {tag.message && (
-                          <div className="history-message">{tag.message}</div>
+                          <div className="history-message">
+                            <Markdown>{tag.message}</Markdown>
+                          </div>
                         )}
                         <div className="history-commit">
                           <code>{tag.commit_hash}</code>
