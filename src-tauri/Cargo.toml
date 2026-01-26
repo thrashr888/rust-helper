@@ -1,0 +1,33 @@
+[package]
+name = "rust-helper"
+version = "0.1.0"
+description = "Multi-project Rust management app"
+authors = ["Paul Thrasher"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "rust_helper_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.3" }
+
+[dependencies]
+tauri = { version = "2.9.5" }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+walkdir = "2"
+toml = "0.8"
+log = "0.4"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
