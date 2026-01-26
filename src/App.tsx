@@ -1111,6 +1111,8 @@ function App() {
   const analyzeBloat = async (release: boolean = true) => {
     if (!selectedProject) return;
     setAnalyzingBloat(true);
+    const jobId = `bloat-${Date.now()}`;
+    addJob(jobId, `Analyzing ${release ? "release" : "debug"} binary...`);
     try {
       const result = await invoke<BloatAnalysis>("analyze_bloat", {
         projectPath: selectedProject.path,
@@ -1121,6 +1123,7 @@ function App() {
       console.error("Failed to analyze bloat:", e);
       alert(`Bloat analysis failed: ${e}`);
     }
+    removeJob(jobId);
     setAnalyzingBloat(false);
   };
 
@@ -2894,6 +2897,11 @@ function App() {
               >
                 <Broom size={16} />
                 Cleanup
+                {selectedProject.target_size > 0 && (
+                  <span className="tab-badge">
+                    {formatBytes(selectedProject.target_size)}
+                  </span>
+                )}
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "dependencies" ? "active" : ""}`}
@@ -2901,6 +2909,9 @@ function App() {
               >
                 <Package size={16} />
                 Dependencies
+                {selectedProject.dep_count > 0 && (
+                  <span className="tab-badge">{selectedProject.dep_count}</span>
+                )}
               </button>
               <button
                 className={`detail-tab ${projectDetailTab === "docs" ? "active" : ""}`}
@@ -3395,96 +3406,186 @@ function App() {
 
             {projectDetailTab === "cleanup" && (
               <div className="detail-tab-content">
-                {selectedProject.target_size > 0 ? (
-                  <>
-                    <p className="tab-description">
-                      Clean build artifacts to free up{" "}
-                      {formatBytes(selectedProject.target_size)} of disk space.
-                    </p>
-                    <div className="cleanup-actions-row">
-                      <button
-                        onClick={() =>
-                          cleanProject(
-                            selectedProject.path,
-                            false,
-                            selectedProject.target_size,
-                          )
-                        }
-                        disabled={
-                          cleaning.has(selectedProject.path) ||
-                          cleaningDebug.has(selectedProject.path)
-                        }
-                      >
-                        {cleaning.has(selectedProject.path) ? (
-                          <>
-                            <Spinner size={16} className="spinning" />{" "}
-                            Cleaning...
-                          </>
-                        ) : (
-                          <>
-                            <Trash size={16} /> Clean All (
-                            {formatBytes(selectedProject.target_size)})
-                          </>
-                        )}
-                      </button>
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          cleanProject(
-                            selectedProject.path,
-                            true,
-                            selectedProject.target_size,
-                          )
-                        }
-                        disabled={
-                          cleaning.has(selectedProject.path) ||
-                          cleaningDebug.has(selectedProject.path)
-                        }
-                      >
-                        {cleaningDebug.has(selectedProject.path) ? (
-                          <>
-                            <Spinner size={16} className="spinning" /> Cleaning
-                            Debug...
-                          </>
-                        ) : (
-                          "Clean Debug Only"
-                        )}
-                      </button>
-                    </div>
-                    {cleanResults.find(
-                      (r) => r.path === selectedProject.path,
-                    ) && (
-                      <div className="cleanup-result">
-                        {cleanResults.find(
-                          (r) => r.path === selectedProject.path,
-                        )!.success ? (
-                          <span className="cleanup-success">
-                            <CheckCircle size={16} weight="fill" />
-                            Freed{" "}
-                            {formatBytes(
-                              cleanResults.find(
-                                (r) => r.path === selectedProject.path,
-                              )!.freed_bytes,
-                            )}
-                          </span>
-                        ) : (
-                          <span className="cleanup-error">
-                            <XCircle size={16} weight="fill" />
-                            {
-                              cleanResults.find(
-                                (r) => r.path === selectedProject.path,
-                              )!.error
-                            }
-                          </span>
-                        )}
+                {/* Build Artifacts Section */}
+                <div className="cleanup-section">
+                  <h3>Build Artifacts</h3>
+                  {selectedProject.target_size > 0 ? (
+                    <>
+                      <p className="tab-description">
+                        Clean build artifacts to free up{" "}
+                        {formatBytes(selectedProject.target_size)} of disk space.
+                      </p>
+                      <div className="cleanup-actions-row">
+                        <button
+                          onClick={() =>
+                            cleanProject(
+                              selectedProject.path,
+                              false,
+                              selectedProject.target_size,
+                            )
+                          }
+                          disabled={
+                            cleaning.has(selectedProject.path) ||
+                            cleaningDebug.has(selectedProject.path)
+                          }
+                        >
+                          {cleaning.has(selectedProject.path) ? (
+                            <>
+                              <Spinner size={16} className="spinning" />{" "}
+                              Cleaning...
+                            </>
+                          ) : (
+                            <>
+                              <Trash size={16} /> Clean All (
+                              {formatBytes(selectedProject.target_size)})
+                            </>
+                          )}
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() =>
+                            cleanProject(
+                              selectedProject.path,
+                              true,
+                              selectedProject.target_size,
+                            )
+                          }
+                          disabled={
+                            cleaning.has(selectedProject.path) ||
+                            cleaningDebug.has(selectedProject.path)
+                          }
+                        >
+                          {cleaningDebug.has(selectedProject.path) ? (
+                            <>
+                              <Spinner size={16} className="spinning" /> Cleaning
+                              Debug...
+                            </>
+                          ) : (
+                            "Clean Debug Only"
+                          )}
+                        </button>
                       </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="empty-state">
-                    <p>No build artifacts to clean</p>
+                      {cleanResults.find(
+                        (r) => r.path === selectedProject.path,
+                      ) && (
+                        <div className="cleanup-result">
+                          {cleanResults.find(
+                            (r) => r.path === selectedProject.path,
+                          )!.success ? (
+                            <span className="cleanup-success">
+                              <CheckCircle size={16} weight="fill" />
+                              Freed{" "}
+                              {formatBytes(
+                                cleanResults.find(
+                                  (r) => r.path === selectedProject.path,
+                                )!.freed_bytes,
+                              )}
+                            </span>
+                          ) : (
+                            <span className="cleanup-error">
+                              <XCircle size={16} weight="fill" />
+                              {
+                                cleanResults.find(
+                                  (r) => r.path === selectedProject.path,
+                                )!.error
+                              }
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="tab-description muted">
+                      No build artifacts to clean.
+                    </p>
+                  )}
+                </div>
+
+                {/* Binary Size Analysis Section */}
+                <div className="cleanup-section">
+                  <h3>Binary Size Analysis</h3>
+                  <p className="tab-description">
+                    Analyze what's taking up space in your compiled binary.
+                  </p>
+                  <div className="cleanup-actions-row">
+                    <button
+                      onClick={() => analyzeBloat(true)}
+                      disabled={analyzingBloat}
+                    >
+                      {analyzingBloat ? (
+                        <>
+                          <Spinner size={16} className="spinning" /> Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <ChartBar size={16} /> Analyze Release Build
+                        </>
+                      )}
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => analyzeBloat(false)}
+                      disabled={analyzingBloat}
+                    >
+                      Analyze Debug Build
+                    </button>
                   </div>
-                )}
+
+                  {bloatAnalysis && (
+                    <div className="bloat-results">
+                      <div className="bloat-summary-bar">
+                        <div className="bloat-stat">
+                          <span className="bloat-stat-label">Total Size</span>
+                          <span className="bloat-stat-value">
+                            {formatBytes(bloatAnalysis.file_size)}
+                          </span>
+                        </div>
+                        <div className="bloat-stat">
+                          <span className="bloat-stat-label">Code Section</span>
+                          <span className="bloat-stat-value">
+                            {formatBytes(bloatAnalysis.text_size)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bloat-section">
+                        <h4>Top Crates by Size</h4>
+                        <div className="bloat-bar-list">
+                          {bloatAnalysis.crates.slice(0, 10).map((crate, i) => (
+                            <div key={i} className="bloat-bar-item">
+                              <div className="bloat-bar-header">
+                                <span className="bloat-bar-name">{crate.name}</span>
+                                <span className="bloat-bar-size">
+                                  {formatBytes(crate.size)} ({crate.size_percent.toFixed(1)}%)
+                                </span>
+                              </div>
+                              <div className="bloat-bar-track">
+                                <div
+                                  className="bloat-bar-fill"
+                                  style={{ width: `${Math.min(crate.size_percent * 2, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bloat-section">
+                        <h4>Top Functions by Size</h4>
+                        <div className="bloat-fn-list">
+                          {bloatAnalysis.functions.slice(0, 10).map((fn, i) => (
+                            <div key={i} className="bloat-fn-item">
+                              <span className="bloat-fn-name" title={fn.name}>
+                                {fn.name.length > 60 ? fn.name.slice(0, 60) + "..." : fn.name}
+                              </span>
+                              <span className="bloat-fn-size">{formatBytes(fn.size)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
