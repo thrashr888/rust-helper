@@ -48,6 +48,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 type View =
   | "projects"
+  | "search"
   | "cleanup"
   | "dependencies"
   | "security"
@@ -250,14 +251,32 @@ interface HomebrewStatus {
   formula_name: string | null;
 }
 
+interface RustHomebrewStatus {
+  installed_via_homebrew: boolean;
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+}
+
+interface SearchMatch {
+  start: number;
+  end: number;
+}
+
+interface ContextLine {
+  line_number: number;
+  content: string;
+}
+
 interface SearchResult {
   project_path: string;
   project_name: string;
   file_path: string;
   line_number: number;
   line_content: string;
-  match_start: number;
-  match_end: number;
+  matches: SearchMatch[];
+  context_before: ContextLine[];
+  context_after: ContextLine[];
 }
 
 interface ScanCache {
@@ -394,9 +413,13 @@ function App() {
   const [rustVersionInfo, setRustVersionInfo] = useState<RustVersionInfo | null>(null);
   const [homebrewStatus, setHomebrewStatus] = useState<HomebrewStatus | null>(null);
   const [upgradingHomebrew, setUpgradingHomebrew] = useState(false);
+  const [rustHomebrewStatus, setRustHomebrewStatus] = useState<RustHomebrewStatus | null>(null);
+  const [upgradingRustHomebrew, setUpgradingRustHomebrew] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [projectFilter, setProjectFilter] = useState("");
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -950,9 +973,34 @@ function App() {
     }
   };
 
+  const checkRustHomebrewStatus = async () => {
+    try {
+      const status = await invoke<RustHomebrewStatus>("check_rust_homebrew_status");
+      setRustHomebrewStatus(status);
+    } catch (e) {
+      console.error("Failed to check Rust Homebrew status:", e);
+    }
+  };
+
+  const upgradeRustHomebrew = async () => {
+    if (!rustHomebrewStatus?.installed_via_homebrew) return;
+    setUpgradingRustHomebrew(true);
+    try {
+      const result = await invoke<string>("upgrade_rust_homebrew");
+      alert(result);
+      checkRustHomebrewStatus();
+      loadRustVersionInfo();
+    } catch (e) {
+      alert(`Upgrade failed: ${e}`);
+    } finally {
+      setUpgradingRustHomebrew(false);
+    }
+  };
+
   const performGlobalSearch = async () => {
-    if (!globalSearchQuery.trim()) return;
+    if (!globalSearchQuery.trim() || globalSearchQuery.trim().length < 2) return;
     setSearching(true);
+    setHasSearched(false);
     try {
       const results = await invoke<SearchResult[]>("global_search", {
         query: globalSearchQuery,
@@ -963,6 +1011,7 @@ function App() {
       console.error("Failed to perform global search:", e);
     }
     setSearching(false);
+    setHasSearched(true);
   };
 
   // Commands that benefit from streaming output
@@ -1096,6 +1145,7 @@ function App() {
     loadConfig();
     loadRustVersionInfo();
     checkHomebrewStatus();
+    checkRustHomebrewStatus();
   }, []);
 
   useEffect(() => {
@@ -1110,6 +1160,13 @@ function App() {
       if (!showHidden && hidden.has(p.path)) return false;
       // Filter workspace members
       if (!showWorkspaceMembers && p.is_workspace_member) return false;
+      // Filter by name/path search
+      if (projectFilter) {
+        const query = projectFilter.toLowerCase();
+        const matchesName = p.name.toLowerCase().includes(query);
+        const matchesPath = p.path.toLowerCase().includes(query);
+        if (!matchesName && !matchesPath) return false;
+      }
       return true;
     });
 
@@ -1135,7 +1192,7 @@ function App() {
     });
 
     return filtered;
-  }, [projects, favorites, hidden, sortBy, showWorkspaceMembers, showHidden]);
+  }, [projects, favorites, hidden, sortBy, showWorkspaceMembers, showHidden, projectFilter]);
 
   const stats = useMemo(() => {
     const total = projects.length;
@@ -1197,6 +1254,7 @@ function App() {
 
   const navItems = [
     { id: "projects" as View, label: "Projects", icon: Folder },
+    { id: "search" as View, label: "Search", icon: MagnifyingGlass },
     { id: "cleanup" as View, label: "Cleanup", icon: Broom },
     { id: "dependencies" as View, label: "Dependencies", icon: Package },
     { id: "security" as View, label: "Security", icon: ShieldCheck },
@@ -1283,12 +1341,22 @@ function App() {
                     <MagnifyingGlass size={16} />
                     <input
                       type="text"
-                      placeholder="Search code across projects..."
-                      value={globalSearchQuery}
-                      onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && performGlobalSearch()}
+                      placeholder="Filter projects..."
+                      value={projectFilter}
+                      onChange={(e) => setProjectFilter(e.target.value)}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                     />
-                    {searching && <Spinner size={14} className="spinning" />}
+                    {projectFilter && (
+                      <button
+                        className="clear-filter"
+                        onClick={() => setProjectFilter("")}
+                        title="Clear filter"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
 
                   <div className="sort-control">
@@ -1327,47 +1395,6 @@ function App() {
                     Show hidden ({hidden.size})
                   </label>
                 </div>
-
-                {globalSearchResults.length > 0 && (
-                  <div className="search-results">
-                    <div className="search-results-header">
-                      <h3>Search Results ({globalSearchResults.length})</h3>
-                      <button
-                        className="small"
-                        onClick={() => setGlobalSearchResults([])}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    <div className="search-results-list">
-                      {globalSearchResults.slice(0, 20).map((result, i) => (
-                        <div
-                          key={`${result.file_path}-${result.line_number}-${i}`}
-                          className="search-result-item"
-                          onClick={() => {
-                            const project = projects.find(
-                              (p) => p.path === result.project_path
-                            );
-                            if (project) openProjectDetail(project);
-                          }}
-                        >
-                          <div className="search-result-location">
-                            <span className="search-result-project">
-                              {result.project_name}
-                            </span>
-                            <span className="search-result-file">
-                              {result.file_path.replace(result.project_path + "/", "")}
-                              :{result.line_number}
-                            </span>
-                          </div>
-                          <pre className="search-result-content">
-                            {result.line_content}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 <div className="project-grid">
                   {filteredAndSortedProjects.map((project) => (
@@ -1441,6 +1468,147 @@ function App() {
                   ))}
                 </div>
               </>
+            )}
+          </>
+        )}
+
+        {view === "search" && (
+          <>
+            <h2>Search Code</h2>
+            <p className="page-description">
+              Search across all Rust projects in your workspace.
+            </p>
+
+            <div className="toolbar">
+              <div className="search-box large">
+                <MagnifyingGlass size={18} />
+                <input
+                  type="text"
+                  placeholder="Search code across all projects..."
+                  value={globalSearchQuery}
+                  onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && performGlobalSearch()}
+                  autoFocus
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
+                {searching ? (
+                  <Spinner size={16} className="spinning" />
+                ) : (
+                  <button onClick={performGlobalSearch} disabled={globalSearchQuery.trim().length < 2}>
+                    Search
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {globalSearchResults.length > 0 && (
+              <div className="search-results full-page">
+                <div className="search-results-header">
+                  <h3>
+                    Results ({globalSearchResults.length}
+                    {globalSearchResults.length >= 500 ? "+ - limited" : ""})
+                  </h3>
+                  <button
+                    className="small"
+                    onClick={() => {
+                      setGlobalSearchResults([]);
+                      setHasSearched(false);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="search-results-list">
+                  {globalSearchResults.map((result, i) => {
+                    // Build highlighted line content
+                    const highlightMatches = (content: string, matches: SearchMatch[]) => {
+                      if (!matches || matches.length === 0) return content;
+
+                      const parts: React.ReactNode[] = [];
+                      let lastEnd = 0;
+
+                      matches.forEach((match, idx) => {
+                        // Add text before match
+                        if (match.start > lastEnd) {
+                          parts.push(content.slice(lastEnd, match.start));
+                        }
+                        // Add highlighted match
+                        parts.push(
+                          <mark key={idx} className="search-highlight">
+                            {content.slice(match.start, match.end)}
+                          </mark>
+                        );
+                        lastEnd = match.end;
+                      });
+
+                      // Add remaining text
+                      if (lastEnd < content.length) {
+                        parts.push(content.slice(lastEnd));
+                      }
+
+                      return parts;
+                    };
+
+                    return (
+                      <div
+                        key={`${result.file_path}-${result.line_number}-${i}`}
+                        className="search-result-item"
+                      >
+                        <div className="search-result-header">
+                          <div className="search-result-location">
+                            <span className="search-result-project">
+                              {result.project_name}
+                            </span>
+                            <span className="search-result-file">
+                              {result.file_path.replace(result.project_path + "/", "")}
+                              :{result.line_number}
+                            </span>
+                          </div>
+                          <button
+                            className="icon-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              invoke("open_file_in_vscode", {
+                                filePath: result.file_path,
+                                lineNumber: result.line_number,
+                              });
+                            }}
+                            title="Open in VS Code"
+                          >
+                            <Code size={16} />
+                          </button>
+                        </div>
+                        <div className="search-result-code">
+                          {result.context_before.map((ctx) => (
+                            <pre key={`before-${ctx.line_number}`} className="search-context-line"><span className="line-number">{ctx.line_number}</span>{ctx.content}</pre>
+                          ))}
+                          <pre className="search-match-line"><span className="line-number">{result.line_number}</span>{highlightMatches(result.line_content, result.matches)}</pre>
+                          {result.context_after.map((ctx) => (
+                            <pre key={`after-${ctx.line_number}`} className="search-context-line"><span className="line-number">{ctx.line_number}</span>{ctx.content}</pre>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {globalSearchResults.length === 0 && !searching && hasSearched && (
+              <div className="empty-state">
+                <p>No results found for "{globalSearchQuery}"</p>
+                <p className="hint">Try different keywords or check your scan directory</p>
+              </div>
+            )}
+
+            {!hasSearched && !searching && (
+              <div className="empty-state">
+                <Code size={48} />
+                <p>Enter a search term to find code across all projects</p>
+                <p className="hint">Uses ripgrep for fast searching. Minimum 2 characters required.</p>
+              </div>
             )}
           </>
         )}
@@ -3336,88 +3504,6 @@ function App() {
           <>
             <h2>Settings</h2>
 
-            {rustVersionInfo && (
-              <div className="settings-section">
-                <h3>Environment</h3>
-                <div className="rust-version-info">
-                  <div className="version-row">
-                    <span className="version-label">
-                      <Gear size={16} /> Rust Helper
-                    </span>
-                    <span className="version-value version-with-status">
-                      {homebrewStatus?.current_version ? `v${homebrewStatus.current_version}` : "dev"}
-                      {homebrewStatus?.installed_via_homebrew && (
-                        homebrewStatus.update_available ? (
-                          <span className="update-indicator">
-                            <span className="update-badge">
-                              v{homebrewStatus.latest_version} available
-                            </span>
-                            <button
-                              onClick={upgradeHomebrew}
-                              disabled={upgradingHomebrew}
-                              className="upgrade-btn small"
-                            >
-                              {upgradingHomebrew ? (
-                                <Spinner size={12} className="spinning" />
-                              ) : (
-                                <ArrowUp size={12} />
-                              )}
-                              Upgrade
-                            </button>
-                          </span>
-                        ) : (
-                          <span className="up-to-date" title="Up to date">
-                            <CheckCircle size={14} weight="fill" />
-                          </span>
-                        )
-                      )}
-                    </span>
-                  </div>
-                  <div className="version-row">
-                    <span className="version-label">
-                      <Cpu size={16} /> Rust Compiler
-                    </span>
-                    <span className="version-value">
-                      {rustVersionInfo.rustc_version || "Not installed"}
-                    </span>
-                  </div>
-                  <div className="version-row">
-                    <span className="version-label">
-                      <Package size={16} /> Cargo
-                    </span>
-                    <span className="version-value">
-                      {rustVersionInfo.cargo_version || "Not installed"}
-                    </span>
-                  </div>
-                  {rustVersionInfo.active_toolchain && (
-                    <div className="version-row">
-                      <span className="version-label">
-                        <Wrench size={16} /> Active Toolchain
-                      </span>
-                      <span className="version-value">
-                        {rustVersionInfo.active_toolchain}
-                      </span>
-                    </div>
-                  )}
-                  {rustVersionInfo.installed_toolchains.length > 1 && (
-                    <div className="version-row">
-                      <span className="version-label">Installed Toolchains</span>
-                      <span className="version-value toolchain-list">
-                        {rustVersionInfo.installed_toolchains.map((tc) => (
-                          <span
-                            key={tc}
-                            className={`toolchain-badge ${tc === rustVersionInfo.active_toolchain ? "active" : ""}`}
-                          >
-                            {tc}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
             <div className="settings-section">
               <h3>Scan Directory</h3>
               <p className="settings-description">
@@ -3482,6 +3568,113 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {rustVersionInfo && (
+              <div className="settings-section">
+                <h3>Environment</h3>
+                <div className="rust-version-info">
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Gear size={16} /> Rust Helper
+                    </span>
+                    <span className="version-value version-with-status">
+                      {homebrewStatus?.current_version ? `v${homebrewStatus.current_version}` : "dev"}
+                      {homebrewStatus?.installed_via_homebrew && (
+                        homebrewStatus.update_available ? (
+                          <span className="update-indicator">
+                            <span className="update-badge">
+                              v{homebrewStatus.latest_version} available
+                            </span>
+                            <button
+                              onClick={upgradeHomebrew}
+                              disabled={upgradingHomebrew}
+                              className="upgrade-btn small"
+                            >
+                              {upgradingHomebrew ? (
+                                <Spinner size={12} className="spinning" />
+                              ) : (
+                                <ArrowUp size={12} />
+                              )}
+                              Upgrade
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="up-to-date" title="Up to date">
+                            <CheckCircle size={14} weight="fill" />
+                          </span>
+                        )
+                      )}
+                    </span>
+                  </div>
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Cpu size={16} /> Rust Compiler
+                    </span>
+                    <span className="version-value version-with-status">
+                      {rustVersionInfo.rustc_version || "Not installed"}
+                      {rustHomebrewStatus?.installed_via_homebrew && (
+                        rustHomebrewStatus.update_available ? (
+                          <span className="update-indicator">
+                            <span className="update-badge">
+                              v{rustHomebrewStatus.latest_version} available
+                            </span>
+                            <button
+                              onClick={upgradeRustHomebrew}
+                              disabled={upgradingRustHomebrew}
+                              className="upgrade-btn small"
+                            >
+                              {upgradingRustHomebrew ? (
+                                <Spinner size={12} className="spinning" />
+                              ) : (
+                                <ArrowUp size={12} />
+                              )}
+                              Upgrade
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="up-to-date" title="Up to date">
+                            <CheckCircle size={14} weight="fill" />
+                          </span>
+                        )
+                      )}
+                    </span>
+                  </div>
+                  <div className="version-row">
+                    <span className="version-label">
+                      <Package size={16} /> Cargo
+                    </span>
+                    <span className="version-value">
+                      {rustVersionInfo.cargo_version || "Not installed"}
+                    </span>
+                  </div>
+                  {rustVersionInfo.active_toolchain && (
+                    <div className="version-row">
+                      <span className="version-label">
+                        <Wrench size={16} /> Active Toolchain
+                      </span>
+                      <span className="version-value">
+                        {rustVersionInfo.active_toolchain}
+                      </span>
+                    </div>
+                  )}
+                  {rustVersionInfo.installed_toolchains.length > 1 && (
+                    <div className="version-row">
+                      <span className="version-label">Installed Toolchains</span>
+                      <span className="version-value toolchain-list">
+                        {rustVersionInfo.installed_toolchains.map((tc) => (
+                          <span
+                            key={tc}
+                            className={`toolchain-badge ${tc === rustVersionInfo.active_toolchain ? "active" : ""}`}
+                          >
+                            {tc}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="settings-section">
               <h3>Required Tools</h3>

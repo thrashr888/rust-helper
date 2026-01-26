@@ -1691,6 +1691,54 @@ button svg {
   color: var(--text-secondary);
 }
 
+.search-box .clear-filter {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.search-box .clear-filter:hover {
+  color: var(--text-primary);
+}
+
+.search-box.large {
+  max-width: none;
+  flex: 1;
+  padding: 10px 16px;
+}
+
+.search-box.large input {
+  font-size: 15px;
+}
+
+.search-box.large button {
+  margin-left: 8px;
+}
+
+.page-description {
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.search-results.full-page {
+  margin-top: 24px;
+}
+
+.search-results.full-page .search-results-list {
+  max-height: none;
+}
+
+.empty-state .hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
 /* Cargo features */
 .cargo-features-section {
   margin-bottom: 24px;
@@ -1828,16 +1876,15 @@ button svg {
 .search-results-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   max-height: 300px;
   overflow-y: auto;
 }
 
 .search-result-item {
-  padding: 8px 12px;
+  padding: 12px;
   background: var(--bg-tertiary);
   border-radius: 6px;
-  cursor: pointer;
   transition: all 0.15s;
 }
 
@@ -1845,10 +1892,16 @@ button svg {
   background: var(--bg-primary);
 }
 
+.search-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .search-result-location {
   display: flex;
   gap: 12px;
-  margin-bottom: 4px;
 }
 
 .search-result-project {
@@ -1861,6 +1914,48 @@ button svg {
   font-size: 12px;
   color: var(--text-secondary);
   font-family: monospace;
+}
+
+.search-result-code {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  padding: 4px 0;
+  font-family: monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.search-result-code pre {
+  margin: 0;
+  padding: 2px 8px;
+  white-space: pre;
+  display: flex;
+  gap: 12px;
+}
+
+.search-context-line {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.search-match-line {
+  color: var(--text-primary);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.search-result-code .line-number {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  min-width: 40px;
+  text-align: right;
+  user-select: none;
+}
+
+.search-highlight {
+  background: rgba(245, 158, 11, 0.4);
+  color: var(--text-primary);
+  padding: 1px 2px;
+  border-radius: 2px;
 }
 
 .search-result-content {

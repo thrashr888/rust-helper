@@ -2342,6 +2342,17 @@ pub fn open_in_vscode(project_path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn open_file_in_vscode(file_path: String, line_number: u32) -> Result<(), String> {
+    // VS Code supports --goto file:line:column
+    let location = format!("{}:{}", file_path, line_number);
+    Command::new("code")
+        .args(["--goto", &location])
+        .spawn()
+        .map_err(|e| format!("Failed to open VS Code: {}", e))?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RustVersionInfo {
     pub rustc_version: Option<String>,
@@ -2412,18 +2423,36 @@ pub fn get_rust_version_info() -> RustVersionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextLine {
+    pub line_number: u32,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub project_path: String,
     pub project_name: String,
     pub file_path: String,
     pub line_number: u32,
     pub line_content: String,
-    pub match_start: u32,
-    pub match_end: u32,
+    pub matches: Vec<SearchMatch>,
+    pub context_before: Vec<ContextLine>,
+    pub context_after: Vec<ContextLine>,
 }
 
 #[tauri::command]
 pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<SearchResult> {
+    // Require minimum 2 characters to prevent massive result sets
+    if query.trim().len() < 2 {
+        return Vec::new();
+    }
+
     let root = scan_root.unwrap_or_else(|| {
         dirs::home_dir()
             .map(|p| p.to_string_lossy().to_string())
@@ -2431,8 +2460,9 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
     });
 
     let mut results = Vec::new();
+    const MAX_RESULTS: usize = 500; // Limit total results to prevent UI freezing
 
-    // Use ripgrep if available, otherwise fall back to manual search
+    // Use ripgrep with context lines
     let rg_output = Command::new("rg")
         .args([
             "--json",
@@ -2440,6 +2470,8 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
             "50",
             "--type",
             "rust",
+            "-C",
+            "1", // 1 line of context before and after
             &query,
             &root,
         ])
@@ -2449,53 +2481,149 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
     if let Some(output) = rg_output {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
+
+            // Collect all lines grouped by file and match
+            let mut current_match: Option<SearchResult> = None;
+            let mut pending_context: Vec<ContextLine> = Vec::new();
+
             for line in stdout.lines() {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                    if json.get("type").and_then(|t| t.as_str()) == Some("match") {
-                        if let Some(data) = json.get("data") {
-                            let file_path = data
-                                .get("path")
-                                .and_then(|p| p.get("text"))
-                                .and_then(|t| t.as_str())
-                                .unwrap_or("");
+                    let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
-                            // Find the project root (directory with Cargo.toml)
-                            let mut project_path = PathBuf::from(file_path);
-                            let mut project_name = String::new();
-                            while project_path.pop() {
-                                if project_path.join("Cargo.toml").exists() {
-                                    project_name = project_path
-                                        .file_name()
-                                        .map(|n| n.to_string_lossy().to_string())
-                                        .unwrap_or_default();
-                                    break;
+                    match msg_type {
+                        "context" => {
+                            if let Some(data) = json.get("data") {
+                                let line_number = data
+                                    .get("line_number")
+                                    .and_then(|n| n.as_u64())
+                                    .unwrap_or(0) as u32;
+                                let content = data
+                                    .get("lines")
+                                    .and_then(|l| l.get("text"))
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .trim_end()
+                                    .to_string();
+
+                                let ctx = ContextLine {
+                                    line_number,
+                                    content,
+                                };
+
+                                // If we have a current match, this is context_after
+                                if let Some(ref mut m) = current_match {
+                                    if line_number > m.line_number {
+                                        m.context_after.push(ctx);
+                                    }
+                                } else {
+                                    // This is context_before for the next match
+                                    pending_context.push(ctx);
+                                }
+                            }
+                        }
+                        "match" => {
+                            // Save previous match if any
+                            if let Some(m) = current_match.take() {
+                                results.push(m);
+                                if results.len() >= MAX_RESULTS {
+                                    return results;
                                 }
                             }
 
-                            if let Some(lines) = data.get("lines").and_then(|l| l.get("text")) {
-                                let line_content = lines.as_str().unwrap_or("").trim().to_string();
-                                let line_number =
-                                    data.get("line_number")
-                                        .and_then(|n| n.as_u64())
-                                        .unwrap_or(0) as u32;
+                            if let Some(data) = json.get("data") {
+                                let file_path = data
+                                    .get("path")
+                                    .and_then(|p| p.get("text"))
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
 
-                                results.push(SearchResult {
+                                // Find the project root
+                                let mut project_path = PathBuf::from(file_path);
+                                let mut project_name = String::new();
+                                while project_path.pop() {
+                                    if project_path.join("Cargo.toml").exists() {
+                                        project_name = project_path
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_default();
+                                        break;
+                                    }
+                                }
+
+                                let line_content = data
+                                    .get("lines")
+                                    .and_then(|l| l.get("text"))
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .trim_end()
+                                    .to_string();
+
+                                let line_number = data
+                                    .get("line_number")
+                                    .and_then(|n| n.as_u64())
+                                    .unwrap_or(0) as u32;
+
+                                // Extract match positions from submatches
+                                let matches: Vec<SearchMatch> = data
+                                    .get("submatches")
+                                    .and_then(|s| s.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|m| {
+                                                let start =
+                                                    m.get("start").and_then(|s| s.as_u64())? as u32;
+                                                let end =
+                                                    m.get("end").and_then(|e| e.as_u64())? as u32;
+                                                Some(SearchMatch { start, end })
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                // Filter pending context to only lines before this match
+                                let context_before: Vec<ContextLine> = pending_context
+                                    .drain(..)
+                                    .filter(|c| c.line_number < line_number)
+                                    .collect();
+
+                                current_match = Some(SearchResult {
                                     project_path: project_path.to_string_lossy().to_string(),
                                     project_name,
                                     file_path: file_path.to_string(),
                                     line_number,
                                     line_content,
-                                    match_start: 0,
-                                    match_end: query.len() as u32,
+                                    matches,
+                                    context_before,
+                                    context_after: Vec::new(),
                                 });
                             }
                         }
+                        "end" => {
+                            // End of results for a file, save current match
+                            if let Some(m) = current_match.take() {
+                                results.push(m);
+                                if results.len() >= MAX_RESULTS {
+                                    return results;
+                                }
+                            }
+                            pending_context.clear();
+                        }
+                        _ => {}
                     }
+                }
+            }
+
+            // Don't forget the last match
+            if let Some(m) = current_match {
+                if results.len() < MAX_RESULTS {
+                    results.push(m);
                 }
             }
         }
     }
 
+    // Truncate to MAX_RESULTS if somehow exceeded
+    results.truncate(MAX_RESULTS);
     results
 }
 
@@ -2614,6 +2742,108 @@ pub async fn upgrade_homebrew(formula_name: String) -> Result<String, String> {
             "Successfully upgraded {}. Please restart the app.",
             formula_name
         ))
+    } else {
+        Err(String::from_utf8_lossy(&upgrade_output.stderr).to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RustHomebrewStatus {
+    pub installed_via_homebrew: bool,
+    pub current_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+}
+
+#[tauri::command]
+pub fn check_rust_homebrew_status() -> RustHomebrewStatus {
+    // First check if rustc shows "(Homebrew)" in its version
+    let rustc_output = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    let is_homebrew = rustc_output
+        .as_ref()
+        .map(|v| v.contains("(Homebrew)"))
+        .unwrap_or(false);
+
+    if !is_homebrew {
+        return RustHomebrewStatus {
+            installed_via_homebrew: false,
+            current_version: None,
+            latest_version: None,
+            update_available: false,
+        };
+    }
+
+    // Extract current version from rustc output (e.g., "rustc 1.92.0 (hash) (Homebrew)")
+    let current_version = rustc_output
+        .as_ref()
+        .and_then(|v| v.split_whitespace().nth(1).map(|s| s.to_string()));
+
+    // Check brew info for latest version
+    let brew_output = Command::new("brew")
+        .args(["info", "rust", "--json=v2"])
+        .output();
+
+    let latest_version = brew_output.ok().and_then(|output| {
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            serde_json::from_str::<serde_json::Value>(&json_str)
+                .ok()
+                .and_then(|json| {
+                    json.get("formulae")
+                        .and_then(|f| f.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|formula| {
+                            formula
+                                .get("versions")
+                                .and_then(|v| v.get("stable"))
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        })
+                })
+        } else {
+            None
+        }
+    });
+
+    let update_available = match (&current_version, &latest_version) {
+        (Some(current), Some(latest)) => current != latest,
+        _ => false,
+    };
+
+    RustHomebrewStatus {
+        installed_via_homebrew: true,
+        current_version,
+        latest_version,
+        update_available,
+    }
+}
+
+#[tauri::command]
+pub async fn upgrade_rust_homebrew() -> Result<String, String> {
+    // First update homebrew
+    let update_output = Command::new("brew")
+        .arg("update")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !update_output.status.success() {
+        return Err(String::from_utf8_lossy(&update_output.stderr).to_string());
+    }
+
+    // Then upgrade rust
+    let upgrade_output = Command::new("brew")
+        .args(["upgrade", "rust"])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if upgrade_output.status.success() {
+        Ok("Successfully upgraded Rust. Restart your terminal to use the new version.".to_string())
     } else {
         Err(String::from_utf8_lossy(&upgrade_output.stderr).to_string())
     }
