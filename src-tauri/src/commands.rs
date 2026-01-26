@@ -1838,3 +1838,77 @@ pub fn open_in_finder(path: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open Finder: {}", e))?;
     Ok(())
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocResult {
+    pub success: bool,
+    pub doc_path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn generate_docs(project_path: String) -> DocResult {
+    let path = PathBuf::from(&project_path);
+
+    // Run cargo doc
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new("cargo")
+            .args(["doc", "--no-deps", "--quiet"])
+            .current_dir(&path)
+            .output()
+    })
+    .await
+    .ok()
+    .and_then(|r| r.ok());
+
+    match output {
+        Some(output) if output.status.success() => {
+            // Find the doc path - it's in target/doc/<crate_name>/index.html
+            // The crate name is derived from Cargo.toml package name with hyphens replaced by underscores
+            let cargo_toml_path = PathBuf::from(&project_path).join("Cargo.toml");
+            let crate_name = fs::read_to_string(&cargo_toml_path)
+                .ok()
+                .and_then(|content| {
+                    content.parse::<toml::Table>().ok()
+                })
+                .and_then(|table| {
+                    table.get("package")
+                        .and_then(|p| p.get("name"))
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.replace("-", "_"))
+                });
+
+            if let Some(name) = crate_name {
+                let doc_path = PathBuf::from(&project_path)
+                    .join("target")
+                    .join("doc")
+                    .join(&name)
+                    .join("index.html");
+
+                if doc_path.exists() {
+                    return DocResult {
+                        success: true,
+                        doc_path: Some(doc_path.to_string_lossy().to_string()),
+                        error: None,
+                    };
+                }
+            }
+
+            DocResult {
+                success: true,
+                doc_path: None,
+                error: Some("Documentation generated but index.html not found".to_string()),
+            }
+        }
+        Some(output) => DocResult {
+            success: false,
+            doc_path: None,
+            error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+        },
+        None => DocResult {
+            success: false,
+            doc_path: None,
+            error: Some("Failed to run cargo doc".to_string()),
+        },
+    }
+}

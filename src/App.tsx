@@ -40,6 +40,7 @@ import {
   Scroll,
   GithubLogo,
   GitCommit,
+  Book,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -60,7 +61,8 @@ type ProjectDetailTab =
   | "dependencies"
   | "security"
   | "licenses"
-  | "cargo-toml";
+  | "cargo-toml"
+  | "docs";
 
 type SortBy = "name" | "lastModified" | "size" | "deps";
 
@@ -172,6 +174,12 @@ interface GitInfo {
   remote_url: string | null;
   github_url: string | null;
   commit_count: number;
+}
+
+interface DocResult {
+  success: boolean;
+  doc_path: string | null;
+  error: string | null;
 }
 
 interface ScanCache {
@@ -294,6 +302,9 @@ function App() {
   const [cargoTomlContent, setCargoTomlContent] = useState<string | null>(null);
   const [loadingCargoToml, setLoadingCargoToml] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [docPath, setDocPath] = useState<string | null>(null);
+  const [generatingDocs, setGeneratingDocs] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -674,6 +685,8 @@ function App() {
     setProjectLicenses(null);
     setCargoTomlContent(null);
     setGitInfo(null);
+    setDocPath(null);
+    setDocError(null);
     setView("project-detail");
     // Load git info in background
     try {
@@ -750,6 +763,29 @@ function App() {
       setCargoTomlContent(null);
     }
     setLoadingCargoToml(false);
+  };
+
+  const generateProjectDocs = async () => {
+    if (!selectedProject) return;
+    setGeneratingDocs(true);
+    setDocError(null);
+    const jobId = `generate-docs-${Date.now()}`;
+    addJob(jobId, "Generating documentation...");
+    try {
+      const result = await invoke<DocResult>("generate_docs", {
+        projectPath: selectedProject.path,
+      });
+      if (result.success && result.doc_path) {
+        setDocPath(result.doc_path);
+      } else {
+        setDocError(result.error || "Failed to generate docs");
+      }
+    } catch (e) {
+      console.error("Failed to generate docs:", e);
+      setDocError("Failed to generate documentation");
+    }
+    removeJob(jobId);
+    setGeneratingDocs(false);
   };
 
   // Commands that benefit from streaming output
@@ -2169,6 +2205,13 @@ function App() {
                 <FileCode size={16} />
                 Cargo.toml
               </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "docs" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("docs")}
+              >
+                <Book size={16} />
+                Docs
+              </button>
             </div>
 
             {projectDetailTab === "commands" && (
@@ -2863,6 +2906,48 @@ function App() {
                 ) : (
                   <div className="empty-state">
                     <p>Failed to load Cargo.toml</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "docs" && (
+              <div className="detail-tab-content docs-tab">
+                <div className="toolbar">
+                  <button
+                    onClick={generateProjectDocs}
+                    disabled={generatingDocs}
+                  >
+                    {generatingDocs ? (
+                      <>
+                        <Spinner size={16} className="spinning" /> Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Book size={16} /> Generate Docs
+                      </>
+                    )}
+                  </button>
+                </div>
+                {generatingDocs ? (
+                  <div className="empty-state">
+                    <Spinner size={24} className="spinning" />
+                    <p>Generating documentation...</p>
+                  </div>
+                ) : docPath ? (
+                  <iframe
+                    src={`asset://localhost/${encodeURI(docPath)}`}
+                    className="docs-iframe"
+                    title="Documentation"
+                  />
+                ) : docError ? (
+                  <div className="empty-state">
+                    <XCircle size={24} />
+                    <p>{docError}</p>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>Click "Generate Docs" to build and view documentation</p>
                   </div>
                 )}
               </div>

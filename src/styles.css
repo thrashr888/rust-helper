@@ -918,6 +918,20 @@ button svg {
   tab-size: 2;
 }
 
+.docs-tab {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 280px);
+}
+
+.docs-iframe {
+  flex: 1;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .project-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
