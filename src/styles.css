@@ -1999,6 +1999,12 @@ button svg {
   min-width: 40px;
   text-align: right;
   user-select: none;
+  flex-shrink: 0;
+}
+
+.search-result-code .line-content {
+  flex: 1;
+  white-space: pre;
 }
 
 .search-highlight {
