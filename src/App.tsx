@@ -265,6 +265,22 @@ function App() {
   const [toolchainTimestamp, setToolchainTimestamp] = useState<number | null>(null);
   const [licenseTimestamp, setLicenseTimestamp] = useState<number | null>(null);
 
+  // Background job queue
+  interface BackgroundJob {
+    id: string;
+    label: string;
+    startTime: number;
+  }
+  const [jobs, setJobs] = useState<BackgroundJob[]>([]);
+
+  const addJob = (id: string, label: string) => {
+    setJobs((prev) => [...prev, { id, label, startTime: Date.now() }]);
+  };
+
+  const removeJob = (id: string) => {
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+  };
+
   const loadConfig = async () => {
     try {
       const favs = await invoke<string[]>("get_favorites");
@@ -314,6 +330,7 @@ function App() {
     if (!pathToScan) return;
 
     setScanning(true);
+    addJob("scan", "Scanning projects...");
     try {
       const found = await invoke<Project[]>("scan_projects", {
         rootPath: pathToScan,
@@ -322,6 +339,7 @@ function App() {
     } catch (e) {
       console.error("Failed to scan projects:", e);
     }
+    removeJob("scan");
     setScanning(false);
   };
 
@@ -408,8 +426,7 @@ function App() {
   const checkAllOutdated = async () => {
     setCheckingOutdated(true);
     setOutdatedResults([]);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    addJob("outdated", "Checking dependencies...");
     // Only check non-workspace-member projects
     const projectsToCheck = projects
       .filter((p) => !p.is_workspace_member)
@@ -425,6 +442,7 @@ function App() {
     } catch (e) {
       console.error("Failed to check outdated:", e);
     }
+    removeJob("outdated");
     setCheckingOutdated(false);
   };
 
@@ -442,8 +460,7 @@ function App() {
   const checkAllAudits = async () => {
     setCheckingAudit(true);
     setAuditResults([]);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    addJob("audit", "Auditing security...");
     const projectsToCheck = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -458,6 +475,7 @@ function App() {
     } catch (e) {
       console.error("Failed to check audits:", e);
     }
+    removeJob("audit");
     setCheckingAudit(false);
   };
 
@@ -471,8 +489,8 @@ function App() {
     if (!selectedProject) return;
     setRunningCommand(command);
     setCommandOutput(null);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    const jobId = `cargo-${command}-${Date.now()}`;
+    addJob(jobId, `cargo ${command}...`);
     try {
       const result = await invoke<CargoCommandResult>("run_cargo_command", {
         projectPath: selectedProject.path,
@@ -483,13 +501,13 @@ function App() {
     } catch (e) {
       console.error("Failed to run command:", e);
     }
+    removeJob(jobId);
     setRunningCommand(null);
   };
 
   const analyzeDependencies = async () => {
     setAnalyzingDeps(true);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    addJob("deps", "Analyzing dependencies...");
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -504,13 +522,13 @@ function App() {
     } catch (e) {
       console.error("Failed to analyze dependencies:", e);
     }
+    removeJob("deps");
     setAnalyzingDeps(false);
   };
 
   const analyzeToolchains = async () => {
     setAnalyzingToolchains(true);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    addJob("toolchains", "Analyzing toolchains...");
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -525,13 +543,13 @@ function App() {
     } catch (e) {
       console.error("Failed to analyze toolchains:", e);
     }
+    removeJob("toolchains");
     setAnalyzingToolchains(false);
   };
 
   const analyzeLicenses = async () => {
     setAnalyzingLicenses(true);
-    // Yield to event loop to allow React to render loading state
-    await new Promise(resolve => setTimeout(resolve, 50));
+    addJob("licenses", "Scanning licenses...");
     const projectsToAnalyze = projects
       .filter((p) => !p.is_workspace_member)
       .map((p) => p.path);
@@ -546,6 +564,7 @@ function App() {
     } catch (e) {
       console.error("Failed to analyze licenses:", e);
     }
+    removeJob("licenses");
     setAnalyzingLicenses(false);
   };
 
@@ -677,6 +696,19 @@ function App() {
             </div>
           ))}
         </nav>
+        {jobs.length > 0 && (
+          <div className="job-queue">
+            <div className="job-queue-header">
+              <Spinner size={14} className="spinning" />
+              Running ({jobs.length})
+            </div>
+            {jobs.map((job) => (
+              <div key={job.id} className="job-item">
+                {job.label}
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
 
       <main className="main">

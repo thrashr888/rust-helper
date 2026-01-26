@@ -477,9 +477,9 @@ pub fn check_outdated(project_path: String) -> OutdatedResult {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Run cargo outdated with JSON output
+    // Run cargo outdated with JSON output, only showing root deps
     let output = Command::new("cargo")
-        .args(["outdated", "--format", "json"])
+        .args(["outdated", "--format", "json", "--root-deps-only"])
         .current_dir(&path)
         .output();
 
