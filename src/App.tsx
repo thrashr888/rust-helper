@@ -2075,18 +2075,20 @@ function App() {
               </button>
               <h2>{selectedProject.name}</h2>
             </div>
-            <p className="detail-path">{selectedProject.path}</p>
-            {gitInfo?.github_url && (
-              <a
-                href={gitInfo.github_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="github-link"
-              >
-                <GithubLogo size={16} weight="fill" />
-                {gitInfo.github_url.replace("https://github.com/", "")}
-              </a>
-            )}
+            <div className="detail-path-row">
+              <span className="detail-path">{selectedProject.path}</span>
+              {gitInfo?.github_url && (
+                <a
+                  href={gitInfo.github_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="github-link"
+                >
+                  <GithubLogo size={16} weight="fill" />
+                  {gitInfo.github_url.replace("https://github.com/", "")}
+                </a>
+              )}
+            </div>
 
             <div className="project-stats">
               <div className="stat-card">

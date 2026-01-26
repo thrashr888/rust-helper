@@ -760,10 +760,17 @@ button svg {
   margin-right: 12px;
 }
 
+.detail-path-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
 .detail-path {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
   word-break: break-all;
 }
 
@@ -774,8 +781,8 @@ button svg {
   font-size: 13px;
   color: var(--text-secondary);
   text-decoration: none;
-  margin-bottom: 24px;
   transition: color 0.15s;
+  white-space: nowrap;
 }
 
 .github-link:hover {
@@ -897,7 +904,7 @@ button svg {
 
 .project-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -1124,6 +1131,7 @@ button svg {
 /* Project detail tabs */
 .detail-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border);
