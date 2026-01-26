@@ -1182,47 +1182,28 @@ function App() {
     setAnalyzingBloat(false);
   };
 
-  // Commands that benefit from streaming output
-  const streamingCommands = ["run", "bench", "test", "audit", "clippy", "tree", "tarpaulin"];
-
+  // All cargo commands use streaming for consistent UX
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
     setRunningCommand(command);
     setCommandOutput(null);
     setStreamingOutput([]);
+    setIsStreaming(true);
     const jobId = `cargo-${command}-${Date.now()}`;
     addJob(jobId, `cargo ${command}...`);
 
-    // Use streaming for slow commands
-    if (streamingCommands.includes(command)) {
-      setIsStreaming(true);
-      try {
-        await invoke("run_cargo_command_streaming", {
-          projectPath: selectedProject.path,
-          command,
-          args,
-        });
-        // The command completion will be handled by the event listener
-      } catch (e) {
-        console.error("Failed to run streaming command:", e);
-        removeJob(jobId);
-        setRunningCommand(null);
-        setIsStreaming(false);
-      }
-    } else {
-      // Use regular command for fast commands
-      try {
-        const result = await invoke<CargoCommandResult>("run_cargo_command", {
-          projectPath: selectedProject.path,
-          command,
-          args,
-        });
-        setCommandOutput(result);
-      } catch (e) {
-        console.error("Failed to run command:", e);
-      }
+    try {
+      await invoke("run_cargo_command_streaming", {
+        projectPath: selectedProject.path,
+        command,
+        args,
+      });
+      // Command completion handled by cargo-complete event listener
+    } catch (e) {
+      console.error("Failed to run command:", e);
       removeJob(jobId);
       setRunningCommand(null);
+      setIsStreaming(false);
     }
   };
 
