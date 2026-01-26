@@ -1885,15 +1885,42 @@ function App() {
             {projectDetailTab === "dependencies" && (
               <div className="detail-tab-content">
                 <div className="toolbar">
-                  <button onClick={checkProjectOutdated} disabled={checkingProjectOutdated}>
+                  <button onClick={checkProjectOutdated} disabled={checkingProjectOutdated || runningCommand !== null}>
                     {checkingProjectOutdated ? (
                       <><Spinner size={16} className="spinning" /> Checking...</>
                     ) : (
                       <><Package size={16} /> Check Outdated</>
                     )}
                   </button>
+                  <button
+                    onClick={() => runCargoCommand("update", [])}
+                    disabled={runningCommand !== null || checkingProjectOutdated}
+                  >
+                    {runningCommand === "update" ? (
+                      <><Spinner size={16} className="spinning" /> Updating...</>
+                    ) : (
+                      <><ArrowsClockwise size={16} /> Update All</>
+                    )}
+                  </button>
                   <span className="toolbar-note">Requires: cargo install cargo-outdated</span>
                 </div>
+                {commandOutput && commandOutput.command === "update" && (
+                  <div className="command-output" style={{ marginBottom: 16 }}>
+                    <div className="command-output-header">
+                      <span className={`command-status ${commandOutput.success ? "success" : "error"}`}>
+                        {commandOutput.success ? (
+                          <><CheckCircle size={16} weight="fill" /> Updated</>
+                        ) : (
+                          <><XCircle size={16} weight="fill" /> Failed</>
+                        )}
+                      </span>
+                      <span className="command-name">cargo update</span>
+                    </div>
+                    <pre className="command-output-text">
+                      {commandOutput.stdout || commandOutput.stderr || "(no output)"}
+                    </pre>
+                  </div>
+                )}
                 {projectOutdated ? (
                   projectOutdated.success ? (
                     projectOutdated.dependencies.length === 0 ? (
