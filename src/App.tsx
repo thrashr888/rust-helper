@@ -1812,36 +1812,7 @@ function App() {
                             <Code size={16} />
                           </button>
                         </div>
-                        <div className="search-result-code">
-                          {result.context_before.map((ctx) => (
-                            <pre
-                              key={`before-${ctx.line_number}`}
-                              className="search-context-line"
-                            >
-                              <span className="line-number">
-                                {ctx.line_number}
-                              </span>
-                              {ctx.content}
-                            </pre>
-                          ))}
-                          <pre
-                            className="search-match-line"
-                            dangerouslySetInnerHTML={{
-                              __html: `<span class="line-number">${result.line_number}</span>${highlightMatchesHtml(result.line_content, result.matches)}`,
-                            }}
-                          />
-                          {result.context_after.map((ctx) => (
-                            <pre
-                              key={`after-${ctx.line_number}`}
-                              className="search-context-line"
-                            >
-                              <span className="line-number">
-                                {ctx.line_number}
-                              </span>
-                              {ctx.content}
-                            </pre>
-                          ))}
-                        </div>
+                        <div className="search-result-code">{result.context_before.map((ctx) => (<pre key={`before-${ctx.line_number}`} className="search-context-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${ctx.line_number}</span>${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}` }} />))}<pre className="search-match-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${result.line_number}</span>${highlightMatchesHtml(result.line_content, result.matches)}` }} />{result.context_after.map((ctx) => (<pre key={`after-${ctx.line_number}`} className="search-context-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${ctx.line_number}</span>${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}` }} />))}</div>
                       </div>
                     );
                   })}
