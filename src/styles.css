@@ -1018,29 +1018,23 @@ button svg {
 }
 
 .project-detail-info {
-  flex: 1 1 300px;
-  min-width: 200px;
-}
-
-.project-detail-info .header-row {
-  margin-bottom: 8px;
-  align-items: center;
-}
-
-.project-title {
-  display: flex;
-  align-items: baseline;
-  gap: 0;
   flex: 1;
-  min-width: 0;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.project-title h2 {
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-row h2 {
   margin: 0;
   font-size: 22px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1;
 }
 
 .parent-workspace-link {
@@ -1063,14 +1057,18 @@ button svg {
 .breadcrumb-sep {
   margin: 0 8px;
   color: var(--text-secondary);
-  font-weight: 300;
 }
 
-.header-badges {
-  display: flex;
-  align-items: center;
+.badges-row {
   gap: 6px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.path-row,
+.github-row {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 300;
 }
 
 .badge-workspace {
@@ -1079,26 +1077,6 @@ button svg {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-
-.detail-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.detail-path-group {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.workspace-selector {
-  flex-shrink: 0;
 }
 
 .project-stats-compact {
