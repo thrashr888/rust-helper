@@ -82,6 +82,23 @@ interface CargoCommandResult {
   exit_code: number | null;
 }
 
+interface VersionUsage {
+  version: string;
+  projects: string[];
+}
+
+interface DepUsage {
+  name: string;
+  versions: VersionUsage[];
+  project_count: number;
+}
+
+interface DepAnalysis {
+  dependencies: DepUsage[];
+  total_unique_deps: number;
+  deps_with_mismatches: number;
+}
+
 interface Project {
   name: string;
   path: string;
@@ -164,6 +181,10 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [commandOutput, setCommandOutput] = useState<CargoCommandResult | null>(null);
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
+
+  // Dependency analysis state
+  const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
+  const [analyzingDeps, setAnalyzingDeps] = useState(false);
 
   const loadConfig = async () => {
     try {
@@ -346,6 +367,22 @@ function App() {
       console.error("Failed to run command:", e);
     }
     setRunningCommand(null);
+  };
+
+  const analyzeDependencies = async () => {
+    setAnalyzingDeps(true);
+    const projectsToAnalyze = projects
+      .filter((p) => !p.is_workspace_member)
+      .map((p) => p.path);
+    try {
+      const result = await invoke<DepAnalysis>("analyze_dependencies", {
+        projectPaths: projectsToAnalyze,
+      });
+      setDepAnalysis(result);
+    } catch (e) {
+      console.error("Failed to analyze dependencies:", e);
+    }
+    setAnalyzingDeps(false);
   };
 
   useEffect(() => {
@@ -959,10 +996,96 @@ function App() {
 
         {view === "analysis" && (
           <>
-            <h2>Dependency Analysis</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Analyze dependency usage across projects.
-            </p>
+            <div className="header-row">
+              <h2>Dependency Analysis</h2>
+              {depAnalysis && (
+                <span className="total-size">
+                  {depAnalysis.total_unique_deps} deps, {depAnalysis.deps_with_mismatches} with version mismatches
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <button onClick={analyzeDependencies} disabled={analyzingDeps}>
+                {analyzingDeps ? (
+                  <>
+                    <Spinner size={16} className="spinning" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <ChartBar size={16} />
+                    Analyze Dependencies
+                  </>
+                )}
+              </button>
+            </div>
+
+            {!depAnalysis && !analyzingDeps ? (
+              <div className="empty-state">
+                <p>Click "Analyze Dependencies" to scan Cargo.toml files across projects</p>
+              </div>
+            ) : depAnalysis && (
+              <>
+                <div className="analysis-section">
+                  <h3>Version Mismatches ({depAnalysis.deps_with_mismatches})</h3>
+                  <p className="section-description">
+                    Dependencies with different versions across projects
+                  </p>
+                  <div className="analysis-list">
+                    {depAnalysis.dependencies
+                      .filter((d) => d.versions.length > 1)
+                      .map((dep) => (
+                        <div key={dep.name} className="analysis-item mismatch">
+                          <div className="analysis-item-header">
+                            <span className="analysis-dep-name">{dep.name}</span>
+                            <span className="analysis-count">{dep.project_count} projects</span>
+                          </div>
+                          <div className="analysis-versions">
+                            {dep.versions.map((v) => (
+                              <div key={v.version} className="version-row">
+                                <span className="version-badge">{v.version}</span>
+                                <span className="version-projects">
+                                  {v.projects.join(", ")}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    {depAnalysis.dependencies.filter((d) => d.versions.length > 1).length === 0 && (
+                      <p className="no-items">No version mismatches found</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="analysis-section">
+                  <h3>Most Used Dependencies</h3>
+                  <p className="section-description">
+                    Dependencies ranked by usage across projects
+                  </p>
+                  <div className="analysis-list">
+                    {depAnalysis.dependencies
+                      .slice(0, 30)
+                      .map((dep) => (
+                        <div key={dep.name} className={`analysis-item ${dep.versions.length > 1 ? "has-mismatch" : ""}`}>
+                          <div className="analysis-item-header">
+                            <span className="analysis-dep-name">{dep.name}</span>
+                            <span className="analysis-count">{dep.project_count} projects</span>
+                          </div>
+                          <div className="analysis-versions inline">
+                            {dep.versions.map((v) => (
+                              <span key={v.version} className="version-badge small">
+                                {v.version} ({v.projects.length})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 

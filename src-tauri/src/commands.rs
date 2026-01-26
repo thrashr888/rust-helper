@@ -823,3 +823,114 @@ pub fn run_cargo_bench(project_path: String) -> CargoCommandResult {
 pub fn run_cargo_tree(project_path: String) -> CargoCommandResult {
     run_cargo_command(project_path, "tree".to_string(), vec![])
 }
+
+// ============ Dependency Analysis ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepUsage {
+    pub name: String,
+    pub versions: Vec<VersionUsage>,
+    pub project_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionUsage {
+    pub version: String,
+    pub projects: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepAnalysis {
+    pub dependencies: Vec<DepUsage>,
+    pub total_unique_deps: usize,
+    pub deps_with_mismatches: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoTomlDeps {
+    dependencies: Option<toml::Table>,
+    #[serde(rename = "dev-dependencies")]
+    dev_dependencies: Option<toml::Table>,
+    #[serde(rename = "build-dependencies")]
+    build_dependencies: Option<toml::Table>,
+}
+
+fn extract_version(value: &toml::Value) -> Option<String> {
+    match value {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str().map(String::from)),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+pub fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
+    use std::collections::HashMap;
+
+    // Map: dep_name -> version -> list of projects
+    let mut dep_map: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+
+    for project_path in project_paths {
+        let cargo_path = PathBuf::from(&project_path).join("Cargo.toml");
+        if let Ok(content) = fs::read_to_string(&cargo_path) {
+            if let Ok(cargo) = toml::from_str::<CargoTomlDeps>(&content) {
+                let project_name = PathBuf::from(&project_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| project_path.clone());
+
+                // Collect all dependencies
+                let mut all_deps = Vec::new();
+                if let Some(deps) = cargo.dependencies {
+                    all_deps.extend(deps.into_iter());
+                }
+                if let Some(deps) = cargo.dev_dependencies {
+                    all_deps.extend(deps.into_iter());
+                }
+                if let Some(deps) = cargo.build_dependencies {
+                    all_deps.extend(deps.into_iter());
+                }
+
+                for (name, value) in all_deps {
+                    if let Some(version) = extract_version(&value) {
+                        dep_map
+                            .entry(name)
+                            .or_default()
+                            .entry(version)
+                            .or_default()
+                            .push(project_name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Convert to output format
+    let mut dependencies: Vec<DepUsage> = dep_map
+        .into_iter()
+        .map(|(name, versions)| {
+            let project_count: usize = versions.values().map(|p| p.len()).sum();
+            let versions: Vec<VersionUsage> = versions
+                .into_iter()
+                .map(|(version, projects)| VersionUsage { version, projects })
+                .collect();
+            DepUsage {
+                name,
+                versions,
+                project_count,
+            }
+        })
+        .collect();
+
+    // Sort by usage count (most used first)
+    dependencies.sort_by(|a, b| b.project_count.cmp(&a.project_count));
+
+    let total_unique_deps = dependencies.len();
+    let deps_with_mismatches = dependencies.iter().filter(|d| d.versions.len() > 1).count();
+
+    DepAnalysis {
+        dependencies,
+        total_unique_deps,
+        deps_with_mismatches,
+    }
+}
