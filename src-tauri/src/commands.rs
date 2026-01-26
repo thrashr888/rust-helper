@@ -2498,3 +2498,123 @@ pub async fn global_search(query: String, scan_root: Option<String>) -> Vec<Sear
 
     results
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomebrewStatus {
+    pub installed_via_homebrew: bool,
+    pub current_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+    pub formula_name: Option<String>,
+}
+
+#[tauri::command]
+pub fn check_homebrew_status() -> HomebrewStatus {
+    // Check if brew is available
+    let brew_check = Command::new("brew").arg("--version").output();
+    if brew_check.is_err() {
+        return HomebrewStatus {
+            installed_via_homebrew: false,
+            current_version: None,
+            latest_version: None,
+            update_available: false,
+            formula_name: None,
+        };
+    }
+
+    // Check if rust-helper is installed via homebrew
+    // Try both possible formula names
+    let formula_names = ["rust-helper", "thrashr888/tap/rust-helper"];
+
+    for formula in &formula_names {
+        let info_output = Command::new("brew")
+            .args(["info", formula, "--json=v2"])
+            .output();
+
+        if let Ok(output) = info_output {
+            if output.status.success() {
+                let json_str = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    // Extract current installed version
+                    let current_version = json
+                        .get("formulae")
+                        .and_then(|f| f.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|formula| {
+                            formula
+                                .get("installed")
+                                .and_then(|i| i.as_array())
+                                .and_then(|arr| arr.first())
+                                .and_then(|v| v.get("version"))
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        });
+
+                    // Extract latest version
+                    let latest_version = json
+                        .get("formulae")
+                        .and_then(|f| f.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|formula| {
+                            formula
+                                .get("versions")
+                                .and_then(|v| v.get("stable"))
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        });
+
+                    if current_version.is_some() {
+                        let update_available = match (&current_version, &latest_version) {
+                            (Some(current), Some(latest)) => current != latest,
+                            _ => false,
+                        };
+
+                        return HomebrewStatus {
+                            installed_via_homebrew: true,
+                            current_version,
+                            latest_version,
+                            update_available,
+                            formula_name: Some(formula.to_string()),
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    HomebrewStatus {
+        installed_via_homebrew: false,
+        current_version: None,
+        latest_version: None,
+        update_available: false,
+        formula_name: None,
+    }
+}
+
+#[tauri::command]
+pub async fn upgrade_homebrew(formula_name: String) -> Result<String, String> {
+    // First update homebrew
+    let update_output = Command::new("brew")
+        .arg("update")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !update_output.status.success() {
+        return Err(String::from_utf8_lossy(&update_output.stderr).to_string());
+    }
+
+    // Then upgrade the formula
+    let upgrade_output = Command::new("brew")
+        .args(["upgrade", &formula_name])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if upgrade_output.status.success() {
+        Ok(format!(
+            "Successfully upgraded {}. Please restart the app.",
+            formula_name
+        ))
+    } else {
+        Err(String::from_utf8_lossy(&upgrade_output.stderr).to_string())
+    }
+}

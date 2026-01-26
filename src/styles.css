@@ -610,6 +610,52 @@ button svg {
   margin-bottom: 8px;
 }
 
+/* Homebrew update section */
+.homebrew-section {
+  margin-bottom: 24px;
+}
+
+.version-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.current-version {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.update-available {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-badge {
+  background: var(--accent);
+  color: var(--bg-primary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.upgrade-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.up-to-date {
+  color: var(--success);
+  display: flex;
+  align-items: center;
+}
+
 .settings-description {
   font-size: 14px;
   color: var(--text-secondary);

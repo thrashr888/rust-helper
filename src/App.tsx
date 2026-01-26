@@ -242,6 +242,14 @@ interface RustVersionInfo {
   active_toolchain: string | null;
 }
 
+interface HomebrewStatus {
+  installed_via_homebrew: boolean;
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+  formula_name: string | null;
+}
+
 interface SearchResult {
   project_path: string;
   project_name: string;
@@ -384,6 +392,8 @@ function App() {
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
   const [rustVersionInfo, setRustVersionInfo] = useState<RustVersionInfo | null>(null);
+  const [homebrewStatus, setHomebrewStatus] = useState<HomebrewStatus | null>(null);
+  const [upgradingHomebrew, setUpgradingHomebrew] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -915,6 +925,31 @@ function App() {
     }
   };
 
+  const checkHomebrewStatus = async () => {
+    try {
+      const status = await invoke<HomebrewStatus>("check_homebrew_status");
+      setHomebrewStatus(status);
+    } catch (e) {
+      console.error("Failed to check Homebrew status:", e);
+    }
+  };
+
+  const upgradeHomebrew = async () => {
+    if (!homebrewStatus?.formula_name) return;
+    setUpgradingHomebrew(true);
+    try {
+      const result = await invoke<string>("upgrade_homebrew", {
+        formulaName: homebrewStatus.formula_name,
+      });
+      alert(result);
+      checkHomebrewStatus();
+    } catch (e) {
+      alert(`Upgrade failed: ${e}`);
+    } finally {
+      setUpgradingHomebrew(false);
+    }
+  };
+
   const performGlobalSearch = async () => {
     if (!globalSearchQuery.trim()) return;
     setSearching(true);
@@ -1060,6 +1095,7 @@ function App() {
   useEffect(() => {
     loadConfig();
     loadRustVersionInfo();
+    checkHomebrewStatus();
   }, []);
 
   useEffect(() => {
@@ -3299,6 +3335,43 @@ function App() {
         {view === "settings" && (
           <>
             <h2>Settings</h2>
+
+            {homebrewStatus?.installed_via_homebrew && (
+              <div className="settings-section homebrew-section">
+                <h3>App Version</h3>
+                <div className="version-status">
+                  <span className="current-version">
+                    v{homebrewStatus.current_version}
+                  </span>
+                  {homebrewStatus.update_available ? (
+                    <div className="update-available">
+                      <span className="update-badge">
+                        Update available: v{homebrewStatus.latest_version}
+                      </span>
+                      <button
+                        onClick={upgradeHomebrew}
+                        disabled={upgradingHomebrew}
+                        className="upgrade-btn"
+                      >
+                        {upgradingHomebrew ? (
+                          <>
+                            <Spinner size={14} className="spinning" /> Upgrading...
+                          </>
+                        ) : (
+                          <>
+                            <ArrowUp size={14} /> Upgrade via Homebrew
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="up-to-date" title="Up to date">
+                      <CheckCircle size={16} weight="fill" />
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {rustVersionInfo && (
               <div className="settings-section">
