@@ -1030,28 +1030,19 @@ button svg {
   text-overflow: ellipsis;
 }
 
-/* Recent projects in sidebar */
-.recent-projects {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+/* Favorites under Projects nav item */
+.nav-favorites {
+  padding-left: 20px;
+  margin-bottom: 4px;
 }
 
-.recent-projects-header {
+.nav-favorite-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  padding: 0 12px;
-}
-
-.recent-project-item {
+  gap: 6px;
   font-size: 12px;
   color: var(--text-secondary);
-  padding: 6px 12px;
+  padding: 5px 12px;
   cursor: pointer;
   border-radius: 4px;
   white-space: nowrap;
@@ -1060,7 +1051,153 @@ button svg {
   transition: all 0.15s ease;
 }
 
-.recent-project-item:hover {
+.nav-favorite-item:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.nav-favorite-item svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Project detail tabs */
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.detail-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.detail-tab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.detail-tab.active {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.detail-tab-content {
+  min-height: 200px;
+}
+
+.tab-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.cleanup-actions-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cleanup-result {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.deps-status-good {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid var(--success);
+  border-radius: 8px;
+  color: var(--success);
+}
+
+.deps-error-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  color: var(--error);
+}
+
+/* License table */
+.license-table {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.license-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.license-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.license-table-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.license-name {
+  font-weight: 500;
+}
+
+.license-version {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.license-type {
+  font-size: 12px;
+}
+
+.license-type.problematic {
+  color: var(--error);
+  font-weight: 500;
+}
+
+/* Clickable project names in results */
+.clickable-project-name {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.clickable-project-name:hover {
+  color: var(--accent);
 }

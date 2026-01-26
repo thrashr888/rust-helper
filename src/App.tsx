@@ -30,7 +30,6 @@ import {
   Tree,
   Timer,
   Scroll,
-  ClockCounterClockwise,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -44,6 +43,13 @@ type View =
   | "licenses"
   | "settings"
   | "project-detail";
+
+type ProjectDetailTab =
+  | "commands"
+  | "cleanup"
+  | "dependencies"
+  | "security"
+  | "licenses";
 
 type SortBy = "name" | "lastModified" | "size" | "deps";
 
@@ -246,6 +252,15 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [commandOutput, setCommandOutput] = useState<CargoCommandResult | null>(null);
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
+  const [projectDetailTab, setProjectDetailTab] = useState<ProjectDetailTab>("commands");
+
+  // Per-project analysis state
+  const [projectOutdated, setProjectOutdated] = useState<OutdatedResult | null>(null);
+  const [checkingProjectOutdated, setCheckingProjectOutdated] = useState(false);
+  const [projectAudit, setProjectAudit] = useState<AuditResult | null>(null);
+  const [checkingProjectAudit, setCheckingProjectAudit] = useState(false);
+  const [projectLicenses, setProjectLicenses] = useState<LicenseResult | null>(null);
+  const [checkingProjectLicenses, setCheckingProjectLicenses] = useState(false);
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -259,8 +274,6 @@ function App() {
   const [licenseAnalysis, setLicenseAnalysis] = useState<LicenseAnalysis | null>(null);
   const [analyzingLicenses, setAnalyzingLicenses] = useState(false);
 
-  // Recent projects
-  const [recentProjects, setRecentProjects] = useState<string[]>([]);
 
   // Timestamps for cached results
   const [outdatedTimestamp, setOutdatedTimestamp] = useState<number | null>(null);
@@ -291,10 +304,6 @@ function App() {
       setFavorites(new Set(favs));
       const hid = await invoke<string[]>("get_hidden");
       setHidden(new Set(hid));
-
-      // Load recent projects
-      const recent = await invoke<string[]>("get_recent_projects");
-      setRecentProjects(recent);
 
       // Load scan root
       let root = await invoke<string | null>("get_scan_root");
@@ -487,22 +496,65 @@ function App() {
     setCheckingAudit(false);
   };
 
-  const openProjectDetail = async (project: Project) => {
+  const openProjectDetail = (project: Project) => {
     setSelectedProject(project);
     setCommandOutput(null);
+    setProjectDetailTab("commands");
+    setProjectOutdated(null);
+    setProjectAudit(null);
+    setProjectLicenses(null);
     setView("project-detail");
+  };
 
-    // Add to recent projects
+  const checkProjectOutdated = async () => {
+    if (!selectedProject) return;
+    setCheckingProjectOutdated(true);
+    const jobId = `project-outdated-${Date.now()}`;
+    addJob(jobId, "Checking dependencies...");
     try {
-      await invoke("add_recent_project", { path: project.path });
-      // Update local state
-      setRecentProjects((prev) => {
-        const filtered = prev.filter((p) => p !== project.path);
-        return [project.path, ...filtered].slice(0, 5);
+      const result = await invoke<OutdatedResult>("check_outdated", {
+        projectPath: selectedProject.path,
       });
+      setProjectOutdated(result);
     } catch (e) {
-      console.error("Failed to add recent project:", e);
+      console.error("Failed to check outdated:", e);
     }
+    removeJob(jobId);
+    setCheckingProjectOutdated(false);
+  };
+
+  const checkProjectAudit = async () => {
+    if (!selectedProject) return;
+    setCheckingProjectAudit(true);
+    const jobId = `project-audit-${Date.now()}`;
+    addJob(jobId, "Running security audit...");
+    try {
+      const result = await invoke<AuditResult>("check_audit", {
+        projectPath: selectedProject.path,
+      });
+      setProjectAudit(result);
+    } catch (e) {
+      console.error("Failed to check audit:", e);
+    }
+    removeJob(jobId);
+    setCheckingProjectAudit(false);
+  };
+
+  const checkProjectLicenses = async () => {
+    if (!selectedProject) return;
+    setCheckingProjectLicenses(true);
+    const jobId = `project-licenses-${Date.now()}`;
+    addJob(jobId, "Checking licenses...");
+    try {
+      const result = await invoke<LicenseResult>("check_licenses", {
+        projectPath: selectedProject.path,
+      });
+      setProjectLicenses(result);
+    } catch (e) {
+      console.error("Failed to check licenses:", e);
+    }
+    removeJob(jobId);
+    setCheckingProjectLicenses(false);
   };
 
   const runCargoCommand = async (command: string, args: string[] = []) => {
@@ -706,38 +758,34 @@ function App() {
         <h1>Rust Helper</h1>
         <nav>
           {navItems.map(({ id, label, icon: Icon }) => (
-            <div
-              key={id}
-              className={`nav-item ${view === id ? "active" : ""}`}
-              onClick={() => setView(id)}
-            >
-              <Icon size={20} />
-              {label}
+            <div key={id}>
+              <div
+                className={`nav-item ${view === id ? "active" : ""}`}
+                onClick={() => setView(id)}
+              >
+                <Icon size={20} />
+                {label}
+              </div>
+              {id === "projects" && favorites.size > 0 && (
+                <div className="nav-favorites">
+                  {projects
+                    .filter((p) => favorites.has(p.path))
+                    .map((project) => (
+                      <div
+                        key={project.path}
+                        className="nav-favorite-item"
+                        onClick={() => openProjectDetail(project)}
+                        title={project.path}
+                      >
+                        <Star size={12} weight="fill" />
+                        {project.name}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           ))}
         </nav>
-        {recentProjects.length > 0 && (
-          <div className="recent-projects">
-            <div className="recent-projects-header">
-              <ClockCounterClockwise size={14} />
-              Recent
-            </div>
-            {recentProjects.map((path) => {
-              const project = projects.find((p) => p.path === path);
-              if (!project) return null;
-              return (
-                <div
-                  key={path}
-                  className="recent-project-item"
-                  onClick={() => openProjectDetail(project)}
-                  title={path}
-                >
-                  {project.name}
-                </div>
-              );
-            })}
-          </div>
-        )}
         {jobs.length > 0 && (
           <div className="job-queue">
             <div className="job-queue-header">
@@ -1035,11 +1083,16 @@ function App() {
                 {outdatedResults
                   .filter((r) => r.success)
                   .sort((a, b) => b.dependencies.length - a.dependencies.length)
-                  .map((result) => (
+                  .map((result) => {
+                    const project = projects.find((p) => p.path === result.project_path);
+                    return (
                     <div key={result.project_path} className="deps-project">
                       <div className="deps-project-header">
                         <div className="deps-project-info">
-                          <span className="deps-project-name">
+                          <span
+                            className="deps-project-name clickable-project-name"
+                            onClick={() => project && openProjectDetail(project)}
+                          >
                             {result.project_name}
                           </span>
                           <span className="deps-project-path">
@@ -1084,7 +1137,8 @@ function App() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 {outdatedResults.filter((r) => !r.success).length > 0 && (
                   <div className="deps-errors">
                     <h4>Errors</h4>
@@ -1143,11 +1197,16 @@ function App() {
                 {auditResults
                   .filter((r) => r.success)
                   .sort((a, b) => b.vulnerabilities.length - a.vulnerabilities.length)
-                  .map((result) => (
+                  .map((result) => {
+                    const project = projects.find((p) => p.path === result.project_path);
+                    return (
                     <div key={result.project_path} className="deps-project">
                       <div className="deps-project-header">
                         <div className="deps-project-info">
-                          <span className="deps-project-name">
+                          <span
+                            className="deps-project-name clickable-project-name"
+                            onClick={() => project && openProjectDetail(project)}
+                          >
                             {result.project_name}
                           </span>
                           <span className="deps-project-path">
@@ -1207,7 +1266,8 @@ function App() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 {auditResults.filter((r) => !r.success).length > 0 && (
                   <div className="deps-errors">
                     <h4>Errors</h4>
@@ -1531,11 +1591,18 @@ function App() {
                     {licenseAnalysis.projects
                       .filter((p) => p.success)
                       .sort((a, b) => b.licenses.length - a.licenses.length)
-                      .map((result) => (
+                      .map((result) => {
+                        const project = projects.find((p) => p.path === result.project_path);
+                        return (
                         <div key={result.project_path} className="deps-project">
                           <div className="deps-project-header">
                             <div className="deps-project-info">
-                              <span className="deps-project-name">{result.project_name}</span>
+                              <span
+                                className="deps-project-name clickable-project-name"
+                                onClick={() => project && openProjectDetail(project)}
+                              >
+                                {result.project_name}
+                              </span>
                               <span className="deps-project-path">{result.project_path}</span>
                             </div>
                             <div className="deps-project-count">
@@ -1545,7 +1612,8 @@ function App() {
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     {licenseAnalysis.projects.filter((r) => !r.success).length > 0 && (
                       <div className="deps-errors">
                         <h4>Errors</h4>
@@ -1594,7 +1662,47 @@ function App() {
               </div>
             </div>
 
-            <div className="command-grid">
+            <div className="detail-tabs">
+              <button
+                className={`detail-tab ${projectDetailTab === "commands" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("commands")}
+              >
+                <Code size={16} />
+                Commands
+              </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "cleanup" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("cleanup")}
+              >
+                <Broom size={16} />
+                Cleanup
+              </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "dependencies" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("dependencies")}
+              >
+                <Package size={16} />
+                Dependencies
+              </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "security" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("security")}
+              >
+                <ShieldCheck size={16} />
+                Security
+              </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "licenses" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("licenses")}
+              >
+                <Scroll size={16} />
+                Licenses
+              </button>
+            </div>
+
+            {projectDetailTab === "commands" && (
+              <>
+                <div className="command-grid">
               <button
                 onClick={() => runCargoCommand("check", [])}
                 disabled={runningCommand !== null}
@@ -1715,6 +1823,243 @@ function App() {
                 <pre className="command-output-text">
                   {commandOutput.stdout || commandOutput.stderr || "(no output)"}
                 </pre>
+              </div>
+            )}
+              </>
+            )}
+
+            {projectDetailTab === "cleanup" && (
+              <div className="detail-tab-content">
+                {selectedProject.target_size > 0 ? (
+                  <>
+                    <p className="tab-description">
+                      Clean build artifacts to free up {formatBytes(selectedProject.target_size)} of disk space.
+                    </p>
+                    <div className="cleanup-actions-row">
+                      <button
+                        onClick={() => cleanProject(selectedProject.path, false, selectedProject.target_size)}
+                        disabled={cleaning.has(selectedProject.path) || cleaningDebug.has(selectedProject.path)}
+                      >
+                        {cleaning.has(selectedProject.path) ? (
+                          <><Spinner size={16} className="spinning" /> Cleaning...</>
+                        ) : (
+                          <><Trash size={16} /> Clean All ({formatBytes(selectedProject.target_size)})</>
+                        )}
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => cleanProject(selectedProject.path, true, selectedProject.target_size)}
+                        disabled={cleaning.has(selectedProject.path) || cleaningDebug.has(selectedProject.path)}
+                      >
+                        {cleaningDebug.has(selectedProject.path) ? (
+                          <><Spinner size={16} className="spinning" /> Cleaning Debug...</>
+                        ) : (
+                          "Clean Debug Only"
+                        )}
+                      </button>
+                    </div>
+                    {cleanResults.find((r) => r.path === selectedProject.path) && (
+                      <div className="cleanup-result">
+                        {cleanResults.find((r) => r.path === selectedProject.path)!.success ? (
+                          <span className="cleanup-success">
+                            <CheckCircle size={16} weight="fill" />
+                            Freed {formatBytes(cleanResults.find((r) => r.path === selectedProject.path)!.freed_bytes)}
+                          </span>
+                        ) : (
+                          <span className="cleanup-error">
+                            <XCircle size={16} weight="fill" />
+                            {cleanResults.find((r) => r.path === selectedProject.path)!.error}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <p>No build artifacts to clean</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "dependencies" && (
+              <div className="detail-tab-content">
+                <div className="toolbar">
+                  <button onClick={checkProjectOutdated} disabled={checkingProjectOutdated}>
+                    {checkingProjectOutdated ? (
+                      <><Spinner size={16} className="spinning" /> Checking...</>
+                    ) : (
+                      <><Package size={16} /> Check Outdated</>
+                    )}
+                  </button>
+                  <span className="toolbar-note">Requires: cargo install cargo-outdated</span>
+                </div>
+                {projectOutdated ? (
+                  projectOutdated.success ? (
+                    projectOutdated.dependencies.length === 0 ? (
+                      <div className="deps-status-good">
+                        <CheckCircle size={20} weight="fill" />
+                        All dependencies are up to date
+                      </div>
+                    ) : (
+                      <div className="deps-table">
+                        <div className="deps-table-header">
+                          <span>Package</span>
+                          <span>Current</span>
+                          <span>Latest</span>
+                          <span>Type</span>
+                        </div>
+                        {projectOutdated.dependencies.map((dep) => (
+                          <div key={dep.name} className="deps-table-row">
+                            <span className="dep-name">{dep.name}</span>
+                            <span className="dep-version dep-current">{dep.current}</span>
+                            <span className="dep-version dep-latest">
+                              <ArrowUp size={12} />
+                              {dep.latest}
+                            </span>
+                            <span className="dep-kind">{dep.kind}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    <div className="deps-error-message">
+                      <XCircle size={16} weight="fill" />
+                      {projectOutdated.error}
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-state">
+                    <p>Click "Check Outdated" to scan for outdated dependencies</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "security" && (
+              <div className="detail-tab-content">
+                <div className="toolbar">
+                  <button onClick={checkProjectAudit} disabled={checkingProjectAudit}>
+                    {checkingProjectAudit ? (
+                      <><Spinner size={16} className="spinning" /> Auditing...</>
+                    ) : (
+                      <><ShieldCheck size={16} /> Run Audit</>
+                    )}
+                  </button>
+                  <span className="toolbar-note">Requires: cargo install cargo-audit</span>
+                </div>
+                {projectAudit ? (
+                  projectAudit.success ? (
+                    projectAudit.vulnerabilities.length === 0 && projectAudit.warnings.length === 0 ? (
+                      <div className="deps-status-good">
+                        <CheckCircle size={20} weight="fill" />
+                        No vulnerabilities found
+                      </div>
+                    ) : (
+                      <>
+                        {projectAudit.vulnerabilities.length > 0 && (
+                          <div className="audit-section">
+                            <h4 className="audit-section-title" style={{ color: "var(--error)" }}>
+                              Vulnerabilities ({projectAudit.vulnerabilities.length})
+                            </h4>
+                            {projectAudit.vulnerabilities.map((vuln) => (
+                              <div key={vuln.id} className="audit-item vulnerability">
+                                <div className="audit-item-header">
+                                  <span className="audit-id">{vuln.id}</span>
+                                  <span className="audit-pkg">{vuln.package}@{vuln.version}</span>
+                                </div>
+                                <p className="audit-title">{vuln.title}</p>
+                                {vuln.url && (
+                                  <a href={vuln.url} target="_blank" rel="noopener noreferrer" className="audit-link">
+                                    View Advisory
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {projectAudit.warnings.length > 0 && (
+                          <div className="audit-section">
+                            <h4 className="audit-section-title" style={{ color: "var(--warning)" }}>
+                              Warnings ({projectAudit.warnings.length})
+                            </h4>
+                            <div className="audit-warnings-summary">
+                              {projectAudit.warnings.map((warn) => (
+                                <span key={warn.advisory_id} className="audit-warning-badge" title={warn.title}>
+                                  {warn.package} ({warn.kind})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  ) : (
+                    <div className="deps-error-message">
+                      <XCircle size={16} weight="fill" />
+                      {projectAudit.error}
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-state">
+                    <p>Click "Run Audit" to scan for security vulnerabilities</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "licenses" && (
+              <div className="detail-tab-content">
+                <div className="toolbar">
+                  <button onClick={checkProjectLicenses} disabled={checkingProjectLicenses}>
+                    {checkingProjectLicenses ? (
+                      <><Spinner size={16} className="spinning" /> Scanning...</>
+                    ) : (
+                      <><Scroll size={16} /> Scan Licenses</>
+                    )}
+                  </button>
+                  <span className="toolbar-note">Requires: cargo install cargo-license</span>
+                </div>
+                {projectLicenses ? (
+                  projectLicenses.success ? (
+                    projectLicenses.licenses.length === 0 ? (
+                      <div className="empty-state">
+                        <p>No dependencies found</p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="tab-description">
+                          {projectLicenses.licenses.length} dependencies scanned
+                        </p>
+                        <div className="license-table">
+                          <div className="license-table-header">
+                            <span>Package</span>
+                            <span>Version</span>
+                            <span>License</span>
+                          </div>
+                          {projectLicenses.licenses.map((lic) => (
+                            <div key={`${lic.name}-${lic.version}`} className="license-table-row">
+                              <span className="license-name">{lic.name}</span>
+                              <span className="license-version">{lic.version}</span>
+                              <span className={`license-type ${lic.license.toLowerCase().includes("gpl") ? "problematic" : ""}`}>
+                                {lic.license}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )
+                  ) : (
+                    <div className="deps-error-message">
+                      <XCircle size={16} weight="fill" />
+                      {projectLicenses.error}
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-state">
+                    <p>Click "Scan Licenses" to analyze dependency licenses</p>
+                  </div>
+                )}
               </div>
             )}
           </>
