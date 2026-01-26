@@ -10,7 +10,7 @@ use commands::{
     global_search, install_tool, open_file_in_vscode, open_in_finder, open_in_vscode,
     read_cargo_toml, run_cargo_bench, run_cargo_build, run_cargo_check, run_cargo_clippy,
     run_cargo_command, run_cargo_command_streaming, run_cargo_doc, run_cargo_fmt_check,
-    run_cargo_run, run_cargo_tarpaulin, run_cargo_test, run_cargo_tree, run_cargo_update,
+    run_cargo_run, run_cargo_tarpaulin, run_cargo_test, run_cargo_tree, run_cargo_update, read_tarpaulin_results,
     save_audit_cache, save_dep_analysis_cache, save_license_cache, save_outdated_cache,
     save_toolchain_cache, scan_projects, set_favorite, set_hidden, set_scan_root, upgrade_homebrew,
     upgrade_rust_homebrew,
@@ -93,7 +93,8 @@ pub fn run() {
             check_rust_homebrew_status,
             upgrade_rust_homebrew,
             analyze_bloat,
-            run_cargo_tarpaulin
+            run_cargo_tarpaulin,
+            read_tarpaulin_results
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3054,3 +3054,16 @@ pub async fn run_cargo_tarpaulin(project_path: String) -> Result<String, String>
     .await
     .map_err(|e| format!("Task failed: {}", e))?
 }
+
+#[tauri::command]
+pub async fn read_tarpaulin_results(project_path: String) -> Result<String, String> {
+    let json_path = PathBuf::from(&project_path)
+        .join("target")
+        .join("tarpaulin-report.json");
+
+    if json_path.exists() {
+        fs::read_to_string(&json_path).map_err(|e| e.to_string())
+    } else {
+        Err("Coverage report not found. Make sure tarpaulin completed successfully.".to_string())
+    }
+}

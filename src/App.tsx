@@ -794,9 +794,10 @@ function App() {
         command: string;
         success: boolean;
         exit_code: number | null;
-      }>("cargo-complete", (event) => {
+      }>("cargo-complete", async (event) => {
         setIsStreaming(false);
         setRunningCommand(null);
+        setRunningCoverage(false);
         // Remove any pending cargo jobs
         setJobs((prev) => prev.filter((job) => !job.id.startsWith("cargo-")));
         // Convert streaming output to command result
@@ -808,6 +809,59 @@ function App() {
           stderr: "",
           exit_code: event.payload.exit_code,
         });
+
+        // Handle tarpaulin coverage results
+        if (event.payload.command === "tarpaulin" && event.payload.success) {
+          try {
+            const jsonStr = await invoke<string>("read_tarpaulin_results", {
+              projectPath: event.payload.project_path,
+            });
+            const data = JSON.parse(jsonStr);
+            let files: CoverageFile[] = [];
+            let totalCovered = 0;
+            let totalCoverable = 0;
+
+            if (Array.isArray(data)) {
+              data.forEach((file: { path?: string[]; covered?: number; coverable?: number }) => {
+                if (file.path && Array.isArray(file.path)) {
+                  const filePath = file.path.join("/");
+                  const covered = file.covered || 0;
+                  const coverable = file.coverable || 0;
+                  totalCovered += covered;
+                  totalCoverable += coverable;
+                  if (coverable > 0) {
+                    files.push({ path: filePath, covered, coverable, percent: (covered / coverable) * 100 });
+                  }
+                }
+              });
+            } else if (data.files) {
+              data.files.forEach((file: { path: string; covered: number; coverable: number }) => {
+                totalCovered += file.covered;
+                totalCoverable += file.coverable;
+                if (file.coverable > 0) {
+                  files.push({
+                    path: file.path,
+                    covered: file.covered,
+                    coverable: file.coverable,
+                    percent: (file.covered / file.coverable) * 100,
+                  });
+                }
+              });
+            }
+            files.sort((a, b) => a.percent - b.percent);
+            setCoverageResult({
+              files,
+              total_covered: totalCovered,
+              total_coverable: totalCoverable,
+              coverage_percent: totalCoverable > 0 ? (totalCovered / totalCoverable) * 100 : 0,
+            });
+          } catch (e) {
+            console.error("Failed to parse coverage results:", e);
+            setCoverageError(String(e));
+          }
+        } else if (event.payload.command === "tarpaulin" && !event.payload.success) {
+          setCoverageError("Coverage analysis failed - check output for details");
+        }
       });
     };
 
@@ -1128,78 +1182,8 @@ function App() {
     setAnalyzingBloat(false);
   };
 
-  const runCoverage = async () => {
-    if (!selectedProject) return;
-    setRunningCoverage(true);
-    setCoverageError(null);
-    setCoverageResult(null);
-    const jobId = `coverage-${Date.now()}`;
-    addJob(jobId, "Running code coverage...");
-    try {
-      const jsonStr = await invoke<string>("run_cargo_tarpaulin", {
-        projectPath: selectedProject.path,
-      });
-      // Parse tarpaulin JSON output
-      const data = JSON.parse(jsonStr);
-      // Tarpaulin JSON has different formats, handle the common ones
-      let files: CoverageFile[] = [];
-      let totalCovered = 0;
-      let totalCoverable = 0;
-
-      if (Array.isArray(data)) {
-        // Tarpaulin array format - each entry is a file
-        data.forEach((file: { path?: string[]; covered?: number; coverable?: number }) => {
-          if (file.path && Array.isArray(file.path)) {
-            const filePath = file.path.join("/");
-            const covered = file.covered || 0;
-            const coverable = file.coverable || 0;
-            totalCovered += covered;
-            totalCoverable += coverable;
-            if (coverable > 0) {
-              files.push({
-                path: filePath,
-                covered,
-                coverable,
-                percent: (covered / coverable) * 100,
-              });
-            }
-          }
-        });
-      } else if (data.files) {
-        // Alternative format with files array
-        data.files.forEach((file: { path: string; covered: number; coverable: number }) => {
-          totalCovered += file.covered;
-          totalCoverable += file.coverable;
-          if (file.coverable > 0) {
-            files.push({
-              path: file.path,
-              covered: file.covered,
-              coverable: file.coverable,
-              percent: (file.covered / file.coverable) * 100,
-            });
-          }
-        });
-      }
-
-      // Sort by coverage percentage (lowest first)
-      files.sort((a, b) => a.percent - b.percent);
-
-      setCoverageResult({
-        files,
-        total_covered: totalCovered,
-        total_coverable: totalCoverable,
-        coverage_percent: totalCoverable > 0 ? (totalCovered / totalCoverable) * 100 : 0,
-      });
-    } catch (e) {
-      console.error("Failed to run coverage:", e);
-      setCoverageError(String(e));
-    }
-    removeJob(jobId);
-    setRunningCoverage(false);
-  };
-
   // Commands that benefit from streaming output
-  const streamingCommands = ["run", "bench", "test", "audit", "clippy", "tree"];
+  const streamingCommands = ["run", "bench", "test", "audit", "clippy", "tree", "tarpaulin"];
 
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
@@ -3280,12 +3264,17 @@ function App() {
                     Run Benchmarks
                   </button>
                   <button
-                    onClick={() => runCoverage()}
-                    disabled={runningCoverage}
+                    onClick={() => {
+                      setCoverageError(null);
+                      setCoverageResult(null);
+                      setRunningCoverage(true);
+                      runCargoCommand("tarpaulin", ["--out", "Json", "--output-dir", "target"]);
+                    }}
+                    disabled={runningCommand !== null || runningCoverage}
                     className="test-btn"
                     title="Run code coverage with cargo-tarpaulin"
                   >
-                    {runningCoverage ? (
+                    {runningCommand === "tarpaulin" || runningCoverage ? (
                       <Spinner size={16} className="spinning" />
                     ) : (
                       <Cpu size={16} />
@@ -3297,14 +3286,17 @@ function App() {
                 {/* Test Output Section */}
                 {(commandOutput &&
                   (commandOutput.command === "test" ||
-                    commandOutput.command === "bench")) ||
+                    commandOutput.command === "bench" ||
+                    commandOutput.command === "tarpaulin")) ||
                 (isStreaming &&
-                  (runningCommand === "test" || runningCommand === "bench")) ? (
+                  (runningCommand === "test" || runningCommand === "bench" || runningCommand === "tarpaulin")) ? (
                   <div className="test-results">
                     <div className="test-results-header">
                       <h4>
                         {(commandOutput?.command || runningCommand) === "test"
                           ? "Test Results"
+                          : (commandOutput?.command || runningCommand) === "tarpaulin"
+                          ? "Coverage Output"
                           : "Benchmark Results"}
                       </h4>
                       {commandOutput && !isStreaming ? (
