@@ -805,11 +805,31 @@ button svg {
   color: var(--text-primary);
 }
 
-.command-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
+.command-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
   margin-bottom: 24px;
+}
+
+.command-group {
+  flex: 1 1 200px;
+  min-width: 200px;
+}
+
+.command-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.command-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .command-btn {

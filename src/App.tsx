@@ -2114,7 +2114,9 @@ function App() {
                 <div className="detail-path-row">
                   <button
                     className="detail-path clickable"
-                    onClick={() => invoke("open_in_finder", { path: selectedProject.path })}
+                    onClick={() =>
+                      invoke("open_in_finder", { path: selectedProject.path })
+                    }
                     title="Open in Finder"
                   >
                     <FolderOpen size={14} />
@@ -2141,7 +2143,9 @@ function App() {
                   <span className="stat-label">Target Size</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-value">{selectedProject.dep_count}</span>
+                  <span className="stat-value">
+                    {selectedProject.dep_count}
+                  </span>
                   <span className="stat-label">Dependencies</span>
                 </div>
                 <div className="stat-card">
@@ -2153,7 +2157,10 @@ function App() {
                 {gitInfo && (
                   <div className="stat-card">
                     <span className="stat-value">
-                      <GitCommit size={16} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                      <GitCommit
+                        size={16}
+                        style={{ marginRight: 4, verticalAlign: "middle" }}
+                      />
                       {gitInfo.commit_count.toLocaleString()}
                     </span>
                     <span className="stat-label">Commits</span>
@@ -2185,6 +2192,13 @@ function App() {
                 Dependencies
               </button>
               <button
+                className={`detail-tab ${projectDetailTab === "docs" ? "active" : ""}`}
+                onClick={() => setProjectDetailTab("docs")}
+              >
+                <Book size={16} />
+                Docs
+              </button>
+              <button
                 className={`detail-tab ${projectDetailTab === "security" ? "active" : ""}`}
                 onClick={() => setProjectDetailTab("security")}
               >
@@ -2208,190 +2222,223 @@ function App() {
                 <FileCode size={16} />
                 Cargo.toml
               </button>
-              <button
-                className={`detail-tab ${projectDetailTab === "docs" ? "active" : ""}`}
-                onClick={() => setProjectDetailTab("docs")}
-              >
-                <Book size={16} />
-                Docs
-              </button>
             </div>
 
             {projectDetailTab === "commands" && (
               <>
-                <div className="command-grid">
-                  <button
-                    onClick={() => runCargoCommand("check", ["--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "check" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Code size={16} />
-                    )}
-                    Check
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("build", ["--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "build" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Wrench size={16} />
-                    )}
-                    Build
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("build", ["--release", "--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "build" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Wrench size={16} />
-                    )}
-                    Build Release
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("run", [])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "run" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Play size={16} />
-                    )}
-                    Run
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("test", ["--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "test" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Bug size={16} />
-                    )}
-                    Test
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("fmt", ["--", "--check"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "fmt" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <FileCode size={16} />
-                    )}
-                    Fmt Check
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("fmt", [])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "fmt" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <FileCode size={16} />
-                    )}
-                    Fmt
-                  </button>
-                  <button
-                    onClick={() =>
-                      runCargoCommand("clippy", ["--", "-D", "warnings"])
-                    }
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "clippy" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Warning size={16} />
-                    )}
-                    Clippy
-                  </button>
-                  <button
-                    onClick={() =>
-                      runCargoCommand("clippy", ["--fix", "--allow-dirty", "--allow-staged", "--quiet"])
-                    }
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "clippy" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Warning size={16} />
-                    )}
-                    Clippy Fix
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("doc", ["--no-deps", "--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "doc" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <FileCode size={16} />
-                    )}
-                    Doc
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("update", ["--quiet"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "update" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <ArrowsClockwise size={16} />
-                    )}
-                    Update
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("tree", ["--color", "always"])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "tree" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Tree size={16} />
-                    )}
-                    Tree
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("bench", [])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "bench" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <Timer size={16} />
-                    )}
-                    Bench
-                  </button>
-                  <button
-                    onClick={() => runCargoCommand("audit", [])}
-                    disabled={runningCommand !== null}
-                    className="command-btn"
-                  >
-                    {runningCommand === "audit" ? (
-                      <Spinner size={16} className="spinning" />
-                    ) : (
-                      <ShieldCheck size={16} />
-                    )}
-                    Audit
-                  </button>
+                <div className="command-groups">
+                  <div className="command-group">
+                    <h4 className="command-group-label">Build & Run</h4>
+                    <div className="command-grid">
+                      <button
+                        onClick={() => runCargoCommand("check", ["--quiet"])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "check" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Code size={16} />
+                        )}
+                        Check
+                      </button>
+                      <button
+                        onClick={() => runCargoCommand("build", ["--quiet"])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "build" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Wrench size={16} />
+                        )}
+                        Build
+                      </button>
+                      <button
+                        onClick={() =>
+                          runCargoCommand("build", ["--release", "--quiet"])
+                        }
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "build" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Wrench size={16} />
+                        )}
+                        Build Release
+                      </button>
+                      <button
+                        onClick={() => runCargoCommand("run", [])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "run" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Play size={16} />
+                        )}
+                        Run
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="command-group">
+                    <h4 className="command-group-label">Testing</h4>
+                    <div className="command-grid">
+                      <button
+                        onClick={() => runCargoCommand("test", ["--quiet"])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "test" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Bug size={16} />
+                        )}
+                        Test
+                      </button>
+                      <button
+                        onClick={() => runCargoCommand("bench", [])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "bench" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Timer size={16} />
+                        )}
+                        Bench
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="command-group">
+                    <h4 className="command-group-label">Code Quality</h4>
+                    <div className="command-grid">
+                      <button
+                        onClick={() => runCargoCommand("fmt", ["--", "--check"])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "fmt" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <FileCode size={16} />
+                        )}
+                        Fmt Check
+                      </button>
+                      <button
+                        onClick={() => runCargoCommand("fmt", [])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "fmt" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <FileCode size={16} />
+                        )}
+                        Fmt
+                      </button>
+                      <button
+                        onClick={() =>
+                          runCargoCommand("clippy", ["--", "-D", "warnings"])
+                        }
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "clippy" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Warning size={16} />
+                        )}
+                        Clippy
+                      </button>
+                      <button
+                        onClick={() =>
+                          runCargoCommand("clippy", [
+                            "--fix",
+                            "--allow-dirty",
+                            "--allow-staged",
+                            "--quiet",
+                          ])
+                        }
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "clippy" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Warning size={16} />
+                        )}
+                        Clippy Fix
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="command-group">
+                    <h4 className="command-group-label">Info</h4>
+                    <div className="command-grid">
+                      <button
+                        onClick={() =>
+                          runCargoCommand("doc", ["--no-deps", "--quiet"])
+                        }
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "doc" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <FileCode size={16} />
+                        )}
+                        Doc
+                      </button>
+                      <button
+                        onClick={() =>
+                          runCargoCommand("tree", ["--color", "always"])
+                        }
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "tree" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <Tree size={16} />
+                        )}
+                        Tree
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="command-group">
+                    <h4 className="command-group-label">Maintenance</h4>
+                    <div className="command-grid">
+                      <button
+                        onClick={() => runCargoCommand("update", ["--quiet"])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "update" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <ArrowsClockwise size={16} />
+                        )}
+                        Update
+                      </button>
+                      <button
+                        onClick={() => runCargoCommand("audit", [])}
+                        disabled={runningCommand !== null}
+                        className="command-btn"
+                      >
+                        {runningCommand === "audit" ? (
+                          <Spinner size={16} className="spinning" />
+                        ) : (
+                          <ShieldCheck size={16} />
+                        )}
+                        Audit
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {runningCommand && !isStreaming && (
@@ -2418,7 +2465,7 @@ function App() {
                         __html: DOMPurify.sanitize(
                           streamingOutput
                             .map((line) => ansiConverter.current.toHtml(line))
-                            .join("\n") || "(waiting for output...)"
+                            .join("\n") || "(waiting for output...)",
                         ),
                       }}
                     />
@@ -2452,13 +2499,15 @@ function App() {
                         __html: DOMPurify.sanitize(
                           streamingOutput.length > 0
                             ? streamingOutput
-                                .map((line) => ansiConverter.current.toHtml(line))
+                                .map((line) =>
+                                  ansiConverter.current.toHtml(line),
+                                )
                                 .join("\n")
                             : ansiConverter.current.toHtml(
                                 commandOutput.stdout ||
                                   commandOutput.stderr ||
-                                  "(no output)"
-                              )
+                                  "(no output)",
+                              ),
                         ),
                       }}
                     />
@@ -2631,8 +2680,8 @@ function App() {
                             ansiConverter.current.toHtml(
                               commandOutput.stdout ||
                                 commandOutput.stderr ||
-                                "(no output)"
-                            )
+                                "(no output)",
+                            ),
                           ),
                         }}
                       />
@@ -2902,7 +2951,8 @@ function App() {
                     className="cargo-toml-content"
                     dangerouslySetInnerHTML={{
                       __html: DOMPurify.sanitize(
-                        hljs.highlight(cargoTomlContent, { language: "toml" }).value
+                        hljs.highlight(cargoTomlContent, { language: "toml" })
+                          .value,
                       ),
                     }}
                   />
@@ -3035,18 +3085,27 @@ function App() {
               <div className="toolbar" style={{ marginBottom: 16 }}>
                 <button onClick={checkRequiredTools} disabled={checkingTools}>
                   {checkingTools ? (
-                    <><Spinner size={16} className="spinning" /> Checking...</>
+                    <>
+                      <Spinner size={16} className="spinning" /> Checking...
+                    </>
                   ) : (
-                    <><ArrowsClockwise size={16} /> Refresh</>
+                    <>
+                      <ArrowsClockwise size={16} /> Refresh
+                    </>
                   )}
                 </button>
               </div>
               <div className="tools-list">
                 {requiredTools.map((tool) => (
-                  <div key={tool.name} className={`tool-item ${tool.installed ? "installed" : "missing"}`}>
+                  <div
+                    key={tool.name}
+                    className={`tool-item ${tool.installed ? "installed" : "missing"}`}
+                  >
                     <div className="tool-info">
                       <span className="tool-name">{tool.name}</span>
-                      <span className="tool-description">{tool.description}</span>
+                      <span className="tool-description">
+                        {tool.description}
+                      </span>
                     </div>
                     <div className="tool-status">
                       {tool.installed ? (
@@ -3058,10 +3117,16 @@ function App() {
                         <button
                           className="small"
                           onClick={() => queueToolInstall(tool)}
-                          disabled={installingTools.has(tool.name) || installQueue.some((t) => t.name === tool.name)}
+                          disabled={
+                            installingTools.has(tool.name) ||
+                            installQueue.some((t) => t.name === tool.name)
+                          }
                         >
                           {installingTools.has(tool.name) ? (
-                            <><Spinner size={14} className="spinning" /> Installing...</>
+                            <>
+                              <Spinner size={14} className="spinning" />{" "}
+                              Installing...
+                            </>
                           ) : installQueue.some((t) => t.name === tool.name) ? (
                             <>Queued...</>
                           ) : (
