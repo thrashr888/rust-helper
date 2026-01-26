@@ -2847,9 +2847,9 @@ function App() {
               </div>
               <div className="project-stats-compact">
                 <div className="stat-row">
-                  <span className="stat-label">Target</span>
+                  <span className="stat-label">Modified</span>
                   <span className="stat-value">
-                    {formatBytes(selectedProject.target_size)}
+                    {formatTimeAgo(selectedProject.last_modified)}
                   </span>
                 </div>
                 {binarySizes?.release && (
@@ -2860,18 +2860,6 @@ function App() {
                     </span>
                   </div>
                 )}
-                <div className="stat-row">
-                  <span className="stat-label">Deps</span>
-                  <span className="stat-value">
-                    {selectedProject.dep_count}
-                  </span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">Modified</span>
-                  <span className="stat-value">
-                    {formatTimeAgo(selectedProject.last_modified)}
-                  </span>
-                </div>
                 {gitInfo && (
                   <div className="stat-row">
                     <span className="stat-label">Commits</span>
@@ -3165,19 +3153,6 @@ function App() {
                           Audit
                         </button>
                         <button
-                          onClick={() => analyzeBloat(true)}
-                          disabled={analyzingBloat}
-                          className="command-btn"
-                          title="Analyze binary bloat with cargo-bloat"
-                        >
-                          {analyzingBloat ? (
-                            <Spinner size={16} className="spinning" />
-                          ) : (
-                            <ChartBar size={16} />
-                          )}
-                          Bloat
-                        </button>
-                        <button
                           onClick={() => runCoverage()}
                           disabled={runningCoverage}
                           className="command-btn"
@@ -3306,57 +3281,6 @@ function App() {
                     </div>
                   )}
 
-                  {bloatAnalysis && (
-                    <div className="bloat-analysis">
-                      <div className="bloat-header">
-                        <h4>Binary Size Analysis</h4>
-                        <span className="bloat-summary">
-                          Total: {formatBytes(bloatAnalysis.file_size)} | Code:{" "}
-                          {formatBytes(bloatAnalysis.text_size)}
-                        </span>
-                      </div>
-                      <div className="bloat-columns">
-                        <div className="bloat-column">
-                          <h5>By Crate</h5>
-                          <div className="bloat-list">
-                            {bloatAnalysis.crates
-                              .slice(0, 15)
-                              .map((crate, i) => (
-                                <div key={i} className="bloat-item">
-                                  <span className="bloat-name">
-                                    {crate.name}
-                                  </span>
-                                  <span className="bloat-size">
-                                    {formatBytes(crate.size)} (
-                                    {crate.size_percent.toFixed(1)}%)
-                                  </span>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                        <div className="bloat-column">
-                          <h5>Top Functions</h5>
-                          <div className="bloat-list">
-                            {bloatAnalysis.functions
-                              .slice(0, 15)
-                              .map((fn, i) => (
-                                <div key={i} className="bloat-item">
-                                  <span className="bloat-name" title={fn.name}>
-                                    {fn.name.length > 50
-                                      ? fn.name.slice(0, 50) + "..."
-                                      : fn.name}
-                                  </span>
-                                  <span className="bloat-size">
-                                    {formatBytes(fn.size)}
-                                  </span>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   {coverageError && (
                     <div className="coverage-error">
                       <XCircle size={16} />
@@ -3368,13 +3292,16 @@ function App() {
                     <div className="coverage-analysis">
                       <div className="coverage-header">
                         <h4>Code Coverage</h4>
-                        <span className={`coverage-badge ${coverageResult.coverage_percent >= 80 ? "good" : coverageResult.coverage_percent >= 50 ? "medium" : "low"}`}>
+                        <span
+                          className={`coverage-badge ${coverageResult.coverage_percent >= 80 ? "good" : coverageResult.coverage_percent >= 50 ? "medium" : "low"}`}
+                        >
                           {coverageResult.coverage_percent.toFixed(1)}%
                         </span>
                       </div>
                       <div className="coverage-summary">
                         <span>
-                          {coverageResult.total_covered} / {coverageResult.total_coverable} lines covered
+                          {coverageResult.total_covered} /{" "}
+                          {coverageResult.total_coverable} lines covered
                         </span>
                       </div>
                       <div className="coverage-files">
@@ -3382,13 +3309,18 @@ function App() {
                         <div className="coverage-list">
                           {coverageResult.files.slice(0, 20).map((file, i) => (
                             <div key={i} className="coverage-item">
-                              <span className="coverage-file-name" title={file.path}>
+                              <span
+                                className="coverage-file-name"
+                                title={file.path}
+                              >
                                 {file.path.split("/").pop()}
                               </span>
                               <div className="coverage-bar-container">
                                 <div
                                   className={`coverage-bar ${file.percent >= 80 ? "good" : file.percent >= 50 ? "medium" : "low"}`}
-                                  style={{ width: `${Math.min(file.percent, 100)}%` }}
+                                  style={{
+                                    width: `${Math.min(file.percent, 100)}%`,
+                                  }}
                                 />
                               </div>
                               <span className="coverage-percent">
@@ -3413,7 +3345,8 @@ function App() {
                     <>
                       <p className="tab-description">
                         Clean build artifacts to free up{" "}
-                        {formatBytes(selectedProject.target_size)} of disk space.
+                        {formatBytes(selectedProject.target_size)} of disk
+                        space.
                       </p>
                       <div className="cleanup-actions-row">
                         <button
@@ -3457,8 +3390,8 @@ function App() {
                         >
                           {cleaningDebug.has(selectedProject.path) ? (
                             <>
-                              <Spinner size={16} className="spinning" /> Cleaning
-                              Debug...
+                              <Spinner size={16} className="spinning" />{" "}
+                              Cleaning Debug...
                             </>
                           ) : (
                             "Clean Debug Only"
@@ -3514,7 +3447,8 @@ function App() {
                     >
                       {analyzingBloat ? (
                         <>
-                          <Spinner size={16} className="spinning" /> Analyzing...
+                          <Spinner size={16} className="spinning" />{" "}
+                          Analyzing...
                         </>
                       ) : (
                         <>
@@ -3551,18 +3485,23 @@ function App() {
                       <div className="bloat-section">
                         <h4>Top Crates by Size</h4>
                         <div className="bloat-bar-list">
-                          {bloatAnalysis.crates.slice(0, 10).map((crate, i) => (
+                          {bloatAnalysis.crates.slice(0, 15).map((crate, i) => (
                             <div key={i} className="bloat-bar-item">
                               <div className="bloat-bar-header">
-                                <span className="bloat-bar-name">{crate.name}</span>
+                                <span className="bloat-bar-name">
+                                  {crate.name}
+                                </span>
                                 <span className="bloat-bar-size">
-                                  {formatBytes(crate.size)} ({crate.size_percent.toFixed(1)}%)
+                                  {formatBytes(crate.size)} (
+                                  {crate.size_percent.toFixed(1)}%)
                                 </span>
                               </div>
                               <div className="bloat-bar-track">
                                 <div
                                   className="bloat-bar-fill"
-                                  style={{ width: `${Math.min(crate.size_percent * 2, 100)}%` }}
+                                  style={{
+                                    width: `${Math.min(crate.size_percent * 2, 100)}%`,
+                                  }}
                                 />
                               </div>
                             </div>
@@ -3573,12 +3512,16 @@ function App() {
                       <div className="bloat-section">
                         <h4>Top Functions by Size</h4>
                         <div className="bloat-fn-list">
-                          {bloatAnalysis.functions.slice(0, 10).map((fn, i) => (
+                          {bloatAnalysis.functions.slice(0, 15).map((fn, i) => (
                             <div key={i} className="bloat-fn-item">
                               <span className="bloat-fn-name" title={fn.name}>
-                                {fn.name.length > 60 ? fn.name.slice(0, 60) + "..." : fn.name}
+                                {fn.name.length > 60
+                                  ? fn.name.slice(0, 60) + "..."
+                                  : fn.name}
                               </span>
-                              <span className="bloat-fn-size">{formatBytes(fn.size)}</span>
+                              <span className="bloat-fn-size">
+                                {formatBytes(fn.size)}
+                              </span>
                             </div>
                           ))}
                         </div>
