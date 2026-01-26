@@ -3,6 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import AnsiToHtml from "ansi-to-html";
 import DOMPurify from "dompurify";
+import hljs from "highlight.js/lib/core";
+import toml from "highlight.js/lib/languages/ini"; // TOML uses INI-like syntax
+import "highlight.js/styles/github-dark.css";
+
+hljs.registerLanguage("toml", toml);
 import {
   Folder,
   FolderOpen,
@@ -52,7 +57,8 @@ type ProjectDetailTab =
   | "cleanup"
   | "dependencies"
   | "security"
-  | "licenses";
+  | "licenses"
+  | "cargo-toml";
 
 type SortBy = "name" | "lastModified" | "size" | "deps";
 
@@ -277,6 +283,8 @@ function App() {
   const [checkingProjectAudit, setCheckingProjectAudit] = useState(false);
   const [projectLicenses, setProjectLicenses] = useState<LicenseResult | null>(null);
   const [checkingProjectLicenses, setCheckingProjectLicenses] = useState(false);
+  const [cargoTomlContent, setCargoTomlContent] = useState<string | null>(null);
+  const [loadingCargoToml, setLoadingCargoToml] = useState(false);
 
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
@@ -657,6 +665,7 @@ function App() {
     setProjectOutdated(null);
     setProjectAudit(null);
     setProjectLicenses(null);
+    setCargoTomlContent(null);
     setView("project-detail");
   };
 
@@ -709,6 +718,21 @@ function App() {
     }
     removeJob(jobId);
     setCheckingProjectLicenses(false);
+  };
+
+  const loadCargoToml = async () => {
+    if (!selectedProject) return;
+    setLoadingCargoToml(true);
+    try {
+      const content = await invoke<string>("read_cargo_toml", {
+        projectPath: selectedProject.path,
+      });
+      setCargoTomlContent(content);
+    } catch (e) {
+      console.error("Failed to load Cargo.toml:", e);
+      setCargoTomlContent(null);
+    }
+    setLoadingCargoToml(false);
   };
 
   // Commands that benefit from streaming output
@@ -2089,6 +2113,16 @@ function App() {
                 <Scroll size={16} />
                 Licenses
               </button>
+              <button
+                className={`detail-tab ${projectDetailTab === "cargo-toml" ? "active" : ""}`}
+                onClick={() => {
+                  setProjectDetailTab("cargo-toml");
+                  if (!cargoTomlContent) loadCargoToml();
+                }}
+              >
+                <FileCode size={16} />
+                Cargo.toml
+              </button>
             </div>
 
             {projectDetailTab === "commands" && (
@@ -2759,6 +2793,30 @@ function App() {
                 ) : (
                   <div className="empty-state">
                     <p>Click "Scan Licenses" to analyze dependency licenses</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {projectDetailTab === "cargo-toml" && (
+              <div className="detail-tab-content">
+                {loadingCargoToml ? (
+                  <div className="empty-state">
+                    <Spinner size={24} className="spinning" />
+                    <p>Loading Cargo.toml...</p>
+                  </div>
+                ) : cargoTomlContent ? (
+                  <pre
+                    className="cargo-toml-content"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(
+                        hljs.highlight(cargoTomlContent, { language: "toml" }).value
+                      ),
+                    }}
+                  />
+                ) : (
+                  <div className="empty-state">
+                    <p>Failed to load Cargo.toml</p>
                   </div>
                 )}
               </div>

@@ -1761,3 +1761,9 @@ pub async fn install_tool(install_cmd: String) -> CargoCommandResult {
         exit_code: Some(1),
     })
 }
+
+#[tauri::command]
+pub fn read_cargo_toml(project_path: String) -> Result<String, String> {
+    let path = PathBuf::from(&project_path).join("Cargo.toml");
+    fs::read_to_string(&path).map_err(|e| format!("Failed to read Cargo.toml: {}", e))
+}

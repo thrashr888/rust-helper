@@ -867,6 +867,19 @@ button svg {
   overflow-y: auto;
 }
 
+.cargo-toml-content {
+  padding: 16px;
+  margin: 0;
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+
 .project-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
