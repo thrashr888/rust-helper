@@ -225,6 +225,9 @@ interface WorkspaceInfo {
   is_workspace: boolean;
   members: WorkspaceMember[];
   root_path: string | null;
+  is_member_of_workspace: boolean;
+  parent_workspace_path: string | null;
+  parent_workspace_name: string | null;
 }
 
 interface GitHubActionsStatus {
@@ -2304,22 +2307,44 @@ function App() {
                   >
                     <ArrowLeft size={20} />
                   </button>
-                  <h2>{selectedProject.name}</h2>
-                  {msrvInfo?.edition && (
-                    <span className="badge badge-muted" title="Rust Edition">
-                      {msrvInfo.edition}
-                    </span>
-                  )}
-                  {msrvInfo?.msrv && (
-                    <span className="badge badge-rust" title="Minimum Supported Rust Version">
-                      MSRV {msrvInfo.msrv}
-                    </span>
-                  )}
-                  {githubActionsStatus?.has_workflows && (
-                    <span className="badge badge-ci" title="Has GitHub Actions workflows">
-                      <GitBranch size={12} /> CI
-                    </span>
-                  )}
+                  <div className="project-title">
+                    {workspaceInfo?.is_member_of_workspace && workspaceInfo.parent_workspace_name && (
+                      <button
+                        className="parent-workspace-link"
+                        onClick={() => {
+                          const parent = projects.find(p => p.path === workspaceInfo.parent_workspace_path);
+                          if (parent) openProjectDetail(parent);
+                        }}
+                        title={`Go to parent workspace: ${workspaceInfo.parent_workspace_path}`}
+                      >
+                        {workspaceInfo.parent_workspace_name}
+                        <span className="breadcrumb-sep">›</span>
+                      </button>
+                    )}
+                    <h2>{selectedProject.name}</h2>
+                  </div>
+                  <div className="header-badges">
+                    {msrvInfo?.edition && (
+                      <span className="badge badge-muted" title="Rust Edition">
+                        {msrvInfo.edition}
+                      </span>
+                    )}
+                    {msrvInfo?.msrv && (
+                      <span className="badge badge-rust" title="Minimum Supported Rust Version">
+                        MSRV {msrvInfo.msrv}
+                      </span>
+                    )}
+                    {githubActionsStatus?.has_workflows && (
+                      <span className="badge badge-ci" title="Has GitHub Actions workflows">
+                        <GitBranch size={12} /> CI
+                      </span>
+                    )}
+                    {workspaceInfo?.is_workspace && (
+                      <span className="badge badge-workspace" title={`Workspace with ${workspaceInfo.members.length} members`}>
+                        <FolderOpen size={12} /> {workspaceInfo.members.length} crates
+                      </span>
+                    )}
+                  </div>
                   <button
                     className="icon-btn"
                     onClick={openInVSCode}
@@ -2328,49 +2353,49 @@ function App() {
                     <Code size={18} />
                   </button>
                 </div>
-                <div className="detail-path-row">
-                  <button
-                    className="detail-path clickable"
-                    onClick={() =>
-                      invoke("open_in_finder", { path: selectedProject.path })
-                    }
-                    title="Open in Finder"
-                  >
-                    <FolderOpen size={14} />
-                    {selectedProject.path}
-                  </button>
-                  {gitInfo?.github_url && (
-                    <a
-                      href={gitInfo.github_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="github-link"
+                <div className="detail-meta-row">
+                  <div className="detail-path-group">
+                    <button
+                      className="detail-path clickable"
+                      onClick={() =>
+                        invoke("open_in_finder", { path: selectedProject.path })
+                      }
+                      title="Open in Finder"
                     >
-                      <GithubLogo size={16} weight="fill" />
-                      {gitInfo.github_url.replace("https://github.com/", "")}
-                    </a>
+                      <FolderOpen size={14} />
+                      {selectedProject.path}
+                    </button>
+                    {gitInfo?.github_url && (
+                      <a
+                        href={gitInfo.github_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="github-link"
+                      >
+                        <GithubLogo size={16} weight="fill" />
+                        {gitInfo.github_url.replace("https://github.com/", "")}
+                      </a>
+                    )}
+                  </div>
+                  {workspaceInfo?.is_workspace && workspaceInfo.members.length > 0 && (
+                    <div className="workspace-selector">
+                      <select
+                        className="workspace-select"
+                        value={workspaceInfo.members.find(m => m.is_current)?.path || ""}
+                        onChange={(e) => {
+                          const project = projects.find((p) => p.path === e.target.value);
+                          if (project) openProjectDetail(project);
+                        }}
+                      >
+                        {workspaceInfo.members.map((member) => (
+                          <option key={member.path} value={member.path}>
+                            {member.name} {member.is_current ? "(current)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   )}
                 </div>
-                {workspaceInfo?.is_workspace && workspaceInfo.members.length > 0 && (
-                  <div className="workspace-members">
-                    <span className="workspace-label">Workspace:</span>
-                    <select
-                      className="workspace-select"
-                      value={workspaceInfo.members.find(m => m.is_current)?.path || ""}
-                      onChange={(e) => {
-                        const project = projects.find((p) => p.path === e.target.value);
-                        if (project) openProjectDetail(project);
-                      }}
-                    >
-                      {workspaceInfo.members.map((member) => (
-                        <option key={member.path} value={member.path}>
-                          {member.name} {member.is_current ? "(current)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="workspace-count">{workspaceInfo.members.length} members</span>
-                  </div>
-                )}
               </div>
               <div className="project-stats">
                 <div className="stat-card">

@@ -990,11 +990,82 @@ button svg {
 }
 
 .project-detail-info .header-row {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+  align-items: center;
 }
 
-.project-detail-info .detail-path-row {
-  margin-bottom: 0;
+.project-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.project-title h2 {
+  margin: 0;
+  font-size: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.parent-workspace-link {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  transition: color 0.15s;
+}
+
+.parent-workspace-link:hover {
+  color: var(--accent);
+}
+
+.breadcrumb-sep {
+  margin: 0 8px;
+  color: var(--text-secondary);
+  font-weight: 300;
+}
+
+.header-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.badge-workspace {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.detail-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.detail-path-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.workspace-selector {
+  flex-shrink: 0;
 }
 
 .project-stats {

@@ -2107,6 +2107,9 @@ pub struct WorkspaceInfo {
     pub is_workspace: bool,
     pub members: Vec<WorkspaceMember>,
     pub root_path: Option<String>,
+    pub is_member_of_workspace: bool,
+    pub parent_workspace_path: Option<String>,
+    pub parent_workspace_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2116,10 +2119,59 @@ pub struct WorkspaceMember {
     pub is_current: bool,
 }
 
+// Helper to find parent workspace by walking up directories
+fn find_parent_workspace(project_path: &PathBuf) -> Option<(String, String)> {
+    let mut current = project_path.parent()?;
+
+    while current.parent().is_some() {
+        let cargo_toml = current.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(content) = fs::read_to_string(&cargo_toml) {
+                if let Ok(table) = content.parse::<toml::Table>() {
+                    if let Some(workspace) = table.get("workspace").and_then(|w| w.as_table()) {
+                        if let Some(members) = workspace.get("members").and_then(|m| m.as_array()) {
+                            // Check if any member pattern matches this project
+                            for member in members.iter().filter_map(|m| m.as_str()) {
+                                if member.contains('*') {
+                                    // Glob pattern
+                                    if let Ok(paths) = glob::glob(&current.join(member).to_string_lossy()) {
+                                        for path in paths.flatten() {
+                                            if path == *project_path {
+                                                let name = current.file_name()
+                                                    .map(|n| n.to_string_lossy().to_string())
+                                                    .unwrap_or_else(|| "workspace".to_string());
+                                                return Some((current.to_string_lossy().to_string(), name));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Direct path
+                                    let member_path = current.join(member);
+                                    if member_path == *project_path {
+                                        let name = current.file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| "workspace".to_string());
+                                        return Some((current.to_string_lossy().to_string(), name));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        current = current.parent()?;
+    }
+    None
+}
+
 #[tauri::command]
 pub fn get_workspace_info(project_path: String) -> WorkspaceInfo {
     let path = PathBuf::from(&project_path);
     let cargo_toml = path.join("Cargo.toml");
+
+    // Check for parent workspace first
+    let parent_workspace = find_parent_workspace(&path);
 
     let content = fs::read_to_string(&cargo_toml).ok();
     let table = content.and_then(|c| c.parse::<toml::Table>().ok());
@@ -2198,6 +2250,9 @@ pub fn get_workspace_info(project_path: String) -> WorkspaceInfo {
                     is_workspace: true,
                     members: member_list,
                     root_path: Some(project_path),
+                    is_member_of_workspace: false,
+                    parent_workspace_path: None,
+                    parent_workspace_name: None,
                 };
             }
         }
@@ -2207,6 +2262,9 @@ pub fn get_workspace_info(project_path: String) -> WorkspaceInfo {
         is_workspace: false,
         members: vec![],
         root_path: None,
+        is_member_of_workspace: parent_workspace.is_some(),
+        parent_workspace_path: parent_workspace.as_ref().map(|(p, _)| p.clone()),
+        parent_workspace_name: parent_workspace.map(|(_, n)| n),
     }
 }
 
