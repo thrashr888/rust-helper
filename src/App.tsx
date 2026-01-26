@@ -286,7 +286,8 @@ function App() {
   // Required tools state
   const [requiredTools, setRequiredTools] = useState<ToolStatus[]>([]);
   const [checkingTools, setCheckingTools] = useState(false);
-  const [installingTool, setInstallingTool] = useState<string | null>(null);
+  const [installingTools, setInstallingTools] = useState<Set<string>>(new Set());
+  const [installQueue, setInstallQueue] = useState<ToolStatus[]>([]);
 
   // Timestamps for cached results
   const [outdatedTimestamp, setOutdatedTimestamp] = useState<number | null>(null);
@@ -502,19 +503,74 @@ function App() {
     setCheckingTools(false);
   };
 
-  const installTool = async (tool: ToolStatus) => {
-    setInstallingTool(tool.name);
-    addJob(`install-${tool.name}`, `Installing ${tool.name}...`);
-    try {
-      await invoke<CargoCommandResult>("install_tool", { installCmd: tool.install_cmd });
-      // Refresh tool status
-      await checkRequiredTools();
-    } catch (e) {
-      console.error("Failed to install tool:", e);
-    }
-    removeJob(`install-${tool.name}`);
-    setInstallingTool(null);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+
+  const queueToolInstall = (tool: ToolStatus) => {
+    setInstallQueue((prev) => {
+      // Don't add if already in queue
+      if (prev.some((t) => t.name === tool.name)) return prev;
+      return [...prev, tool];
+    });
   };
+
+  // Process install queue
+  useEffect(() => {
+    if (installQueue.length === 0 || isProcessingQueue) return;
+
+    const processNext = async () => {
+      setIsProcessingQueue(true);
+
+      while (true) {
+        // Get current queue state
+        const currentQueue = installQueue;
+        if (currentQueue.length === 0) break;
+
+        const tool = currentQueue[0];
+
+        // Mark as installing
+        setInstallingTools((prev) => new Set(prev).add(tool.name));
+        addJob(`install-${tool.name}`, `Installing ${tool.name}...`);
+
+        try {
+          const result = await invoke<CargoCommandResult>("install_tool", { installCmd: tool.install_cmd });
+          if (!result.success) {
+            console.error(`Failed to install ${tool.name}:`, result.stderr);
+          }
+        } catch (e) {
+          console.error("Failed to install tool:", e);
+        }
+
+        removeJob(`install-${tool.name}`);
+        setInstallingTools((prev) => {
+          const next = new Set(prev);
+          next.delete(tool.name);
+          return next;
+        });
+
+        // Remove from queue
+        setInstallQueue((prev) => prev.slice(1));
+
+        // Small delay to let state update
+        await new Promise((r) => setTimeout(r, 100));
+
+        // Check if queue is now empty
+        // We need to break and let useEffect re-run to get fresh state
+        break;
+      }
+
+      setIsProcessingQueue(false);
+    };
+
+    processNext();
+  }, [installQueue, isProcessingQueue]);
+
+  // Refresh tools when queue empties
+  useEffect(() => {
+    if (installQueue.length === 0 && !isProcessingQueue && installingTools.size === 0) {
+      // Only refresh if we had tools installing before
+      checkRequiredTools();
+    }
+  }, [installQueue.length, isProcessingQueue, installingTools.size]);
 
   const checkAllAudits = async () => {
     setCheckingAudit(true);
@@ -624,12 +680,12 @@ function App() {
     setUpgradingPackage(packageName);
     setCommandOutput(null);
     const jobId = `cargo-upgrade-${packageName}-${Date.now()}`;
-    addJob(jobId, `cargo upgrade ${packageName}...`);
+    addJob(jobId, `cargo upgrade --package ${packageName}...`);
     try {
       const result = await invoke<CargoCommandResult>("run_cargo_command", {
         projectPath: selectedProject.path,
         command: "upgrade",
-        args: [packageName],
+        args: ["--package", packageName],
       });
       setCommandOutput(result);
     } catch (e) {
@@ -2651,11 +2707,13 @@ function App() {
                       ) : (
                         <button
                           className="small"
-                          onClick={() => installTool(tool)}
-                          disabled={installingTool !== null}
+                          onClick={() => queueToolInstall(tool)}
+                          disabled={installingTools.has(tool.name) || installQueue.some((t) => t.name === tool.name)}
                         >
-                          {installingTool === tool.name ? (
+                          {installingTools.has(tool.name) ? (
                             <><Spinner size={14} className="spinning" /> Installing...</>
+                          ) : installQueue.some((t) => t.name === tool.name) ? (
+                            <>Queued...</>
                           ) : (
                             <>Install</>
                           )}
