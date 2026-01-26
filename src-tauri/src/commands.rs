@@ -301,7 +301,11 @@ pub struct CleanResult {
 }
 
 #[tauri::command]
-pub fn clean_project(project_path: String, debug_only: bool) -> CleanResult {
+pub fn clean_project(
+    project_path: String,
+    debug_only: bool,
+    size_hint: Option<u64>,
+) -> CleanResult {
     let path = PathBuf::from(&project_path);
     let target_path = path.join("target");
 
@@ -320,28 +324,35 @@ pub fn clean_project(project_path: String, debug_only: bool) -> CleanResult {
         };
     }
 
-    let size_before = get_dir_size(&target_path);
+    // Use size hint from frontend if available (avoids slow recalculation)
+    let size_before = size_hint.unwrap_or(0);
 
-    let result = if debug_only {
+    let (result, is_full_clean) = if debug_only {
         // Only clean debug directory
         let debug_path = target_path.join("debug");
         if debug_path.exists() {
-            fs::remove_dir_all(&debug_path)
+            (fs::remove_dir_all(&debug_path), false)
         } else {
-            Ok(())
+            (Ok(()), false)
         }
     } else {
         // Clean entire target directory
-        fs::remove_dir_all(&target_path)
+        (fs::remove_dir_all(&target_path), true)
     };
 
     match result {
         Ok(()) => {
-            let size_after = get_dir_size(&target_path);
+            // If full clean succeeded, we freed the entire size
+            // If partial (debug only), estimate ~half for simplicity
+            let freed = if is_full_clean {
+                size_before
+            } else {
+                size_before / 2
+            };
             CleanResult {
                 path: project_path,
                 name,
-                freed_bytes: size_before.saturating_sub(size_after),
+                freed_bytes: freed,
                 success: true,
                 error: None,
             }
@@ -357,10 +368,18 @@ pub fn clean_project(project_path: String, debug_only: bool) -> CleanResult {
 }
 
 #[tauri::command]
-pub fn clean_projects(project_paths: Vec<String>, debug_only: bool) -> Vec<CleanResult> {
+pub fn clean_projects(
+    project_paths: Vec<String>,
+    debug_only: bool,
+    size_hints: Option<Vec<u64>>,
+) -> Vec<CleanResult> {
     project_paths
         .into_iter()
-        .map(|path| clean_project(path, debug_only))
+        .enumerate()
+        .map(|(i, path)| {
+            let hint = size_hints.as_ref().and_then(|h| h.get(i).copied());
+            clean_project(path, debug_only, hint)
+        })
         .collect()
 }
 

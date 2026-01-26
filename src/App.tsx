@@ -98,8 +98,10 @@ function App() {
   const [showWorkspaceMembers, setShowWorkspaceMembers] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [cleaning, setCleaning] = useState<Set<string>>(new Set());
+  const [cleaningDebug, setCleaningDebug] = useState<Set<string>>(new Set());
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [cleaningAll, setCleaningAll] = useState(false);
+  const [cleaningAllDebug, setCleaningAllDebug] = useState(false);
   const [outdatedResults, setOutdatedResults] = useState<OutdatedResult[]>([]);
   const [checkingOutdated, setCheckingOutdated] = useState(false);
   const [scanRoot, setScanRoot] = useState<string>("");
@@ -178,12 +180,14 @@ function App() {
     }
   };
 
-  const cleanProject = async (projectPath: string, debugOnly: boolean = false) => {
-    setCleaning((prev) => new Set(prev).add(projectPath));
+  const cleanProject = async (projectPath: string, debugOnly: boolean = false, sizeHint?: number) => {
+    const setStateFunc = debugOnly ? setCleaningDebug : setCleaning;
+    setStateFunc((prev) => new Set(prev).add(projectPath));
     try {
       const result = await invoke<CleanResult>("clean_project", {
         projectPath,
         debugOnly,
+        sizeHint: sizeHint ?? null,
       });
       setCleanResults((prev) => [...prev.filter((r) => r.path !== projectPath), result]);
       // Refresh project list to update sizes
@@ -191,7 +195,7 @@ function App() {
     } catch (e) {
       console.error("Failed to clean project:", e);
     }
-    setCleaning((prev) => {
+    setStateFunc((prev) => {
       const next = new Set(prev);
       next.delete(projectPath);
       return next;
@@ -199,20 +203,23 @@ function App() {
   };
 
   const cleanAllProjects = async (debugOnly: boolean = false) => {
-    setCleaningAll(true);
+    const setStateFunc = debugOnly ? setCleaningAllDebug : setCleaningAll;
+    setStateFunc(true);
     setCleanResults([]);
     const projectsToClean = projectsWithTargets.map((p) => p.path);
+    const sizeHints = projectsWithTargets.map((p) => p.target_size);
     try {
       const results = await invoke<CleanResult[]>("clean_projects", {
         projectPaths: projectsToClean,
         debugOnly,
+        sizeHints,
       });
       setCleanResults(results);
       await scanProjects();
     } catch (e) {
       console.error("Failed to clean projects:", e);
     }
-    setCleaningAll(false);
+    setStateFunc(false);
   };
 
   const checkAllOutdated = async () => {
@@ -497,7 +504,7 @@ function App() {
                 <div className="toolbar">
                   <button
                     onClick={() => cleanAllProjects(false)}
-                    disabled={cleaningAll}
+                    disabled={cleaningAll || cleaningAllDebug}
                   >
                     {cleaningAll ? (
                       <>
@@ -514,9 +521,16 @@ function App() {
                   <button
                     className="secondary"
                     onClick={() => cleanAllProjects(true)}
-                    disabled={cleaningAll}
+                    disabled={cleaningAll || cleaningAllDebug}
                   >
-                    Clean Debug Only
+                    {cleaningAllDebug ? (
+                      <>
+                        <Spinner size={16} className="spinning" />
+                        Cleaning Debug...
+                      </>
+                    ) : (
+                      "Clean Debug Only"
+                    )}
                   </button>
                   <button className="secondary" onClick={() => scanProjects()}>
                     Refresh
@@ -526,7 +540,9 @@ function App() {
                 <div className="cleanup-list">
                   {projectsWithTargets.map((project) => {
                     const result = cleanResults.find((r) => r.path === project.path);
-                    const isCurrentlyCleaning = cleaning.has(project.path);
+                    const isCleaningFull = cleaning.has(project.path);
+                    const isCleaningDebug = cleaningDebug.has(project.path);
+                    const isCurrentlyCleaning = isCleaningFull || isCleaningDebug;
 
                     return (
                       <div key={project.path} className="cleanup-row">
@@ -555,19 +571,21 @@ function App() {
                           ) : isCurrentlyCleaning ? (
                             <span className="cleanup-progress">
                               <Spinner size={16} className="spinning" />
-                              Cleaning...
+                              {isCleaningDebug ? "Cleaning debug..." : "Cleaning..."}
                             </span>
                           ) : (
                             <>
                               <button
                                 className="small"
-                                onClick={() => cleanProject(project.path, false)}
+                                onClick={() => cleanProject(project.path, false, project.target_size)}
+                                disabled={cleaningAll || cleaningAllDebug}
                               >
                                 Clean
                               </button>
                               <button
                                 className="small secondary"
-                                onClick={() => cleanProject(project.path, true)}
+                                onClick={() => cleanProject(project.path, true, project.target_size)}
+                                disabled={cleaningAll || cleaningAllDebug}
                               >
                                 Debug
                               </button>
