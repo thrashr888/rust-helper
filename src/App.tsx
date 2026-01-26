@@ -29,6 +29,7 @@ import {
   ArrowsClockwise,
   Tree,
   Timer,
+  Scroll,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -39,6 +40,7 @@ type View =
   | "security"
   | "health"
   | "analysis"
+  | "licenses"
   | "settings"
   | "project-detail";
 
@@ -117,6 +119,35 @@ interface ToolchainAnalysis {
   toolchain_groups: ToolchainGroup[];
   msrv_groups: ToolchainGroup[];
   has_mismatches: boolean;
+}
+
+interface LicenseInfo {
+  name: string;
+  version: string;
+  license: string;
+  authors: string | null;
+  repository: string | null;
+}
+
+interface LicenseGroup {
+  license: string;
+  packages: string[];
+  is_problematic: boolean;
+}
+
+interface LicenseResult {
+  project_path: string;
+  project_name: string;
+  licenses: LicenseInfo[];
+  success: boolean;
+  error: string | null;
+}
+
+interface LicenseAnalysis {
+  projects: LicenseResult[];
+  license_groups: LicenseGroup[];
+  total_packages: number;
+  problematic_count: number;
 }
 
 interface Project {
@@ -209,6 +240,10 @@ function App() {
   // Toolchain analysis state
   const [toolchainAnalysis, setToolchainAnalysis] = useState<ToolchainAnalysis | null>(null);
   const [analyzingToolchains, setAnalyzingToolchains] = useState(false);
+
+  // License analysis state
+  const [licenseAnalysis, setLicenseAnalysis] = useState<LicenseAnalysis | null>(null);
+  const [analyzingLicenses, setAnalyzingLicenses] = useState(false);
 
   const loadConfig = async () => {
     try {
@@ -425,6 +460,22 @@ function App() {
     setAnalyzingToolchains(false);
   };
 
+  const analyzeLicenses = async () => {
+    setAnalyzingLicenses(true);
+    const projectsToAnalyze = projects
+      .filter((p) => !p.is_workspace_member)
+      .map((p) => p.path);
+    try {
+      const result = await invoke<LicenseAnalysis>("check_all_licenses", {
+        projectPaths: projectsToAnalyze,
+      });
+      setLicenseAnalysis(result);
+    } catch (e) {
+      console.error("Failed to analyze licenses:", e);
+    }
+    setAnalyzingLicenses(false);
+  };
+
   useEffect(() => {
     loadConfig();
   }, []);
@@ -533,6 +584,7 @@ function App() {
     { id: "security" as View, label: "Security", icon: ShieldCheck },
     { id: "health" as View, label: "Health", icon: Heartbeat },
     { id: "analysis" as View, label: "Analysis", icon: ChartBar },
+    { id: "licenses" as View, label: "Licenses", icon: Scroll },
     { id: "settings" as View, label: "Settings", icon: Gear },
   ];
 
@@ -1221,6 +1273,140 @@ function App() {
                           </div>
                         </div>
                       ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {view === "licenses" && (
+          <>
+            <div className="header-row">
+              <h2>License Compliance</h2>
+              {licenseAnalysis && (
+                <span className="total-size">
+                  {licenseAnalysis.total_packages} packages, {licenseAnalysis.problematic_count} potentially problematic
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <button onClick={analyzeLicenses} disabled={analyzingLicenses}>
+                {analyzingLicenses ? (
+                  <>
+                    <Spinner size={16} className="spinning" />
+                    Scanning...
+                  </>
+                ) : (
+                  <>
+                    <Scroll size={16} />
+                    Scan All Licenses
+                  </>
+                )}
+              </button>
+              <span className="toolbar-note">
+                Requires: cargo install cargo-license
+              </span>
+            </div>
+
+            {!licenseAnalysis && !analyzingLicenses ? (
+              <div className="empty-state">
+                <p>Click "Scan All Licenses" to analyze license usage across projects</p>
+              </div>
+            ) : licenseAnalysis && (
+              <>
+                {licenseAnalysis.problematic_count > 0 && (
+                  <div className="toolchain-warning">
+                    <Warning size={20} weight="fill" />
+                    <span>{licenseAnalysis.problematic_count} packages with potentially problematic licenses (GPL, AGPL, etc.)</span>
+                  </div>
+                )}
+
+                <div className="analysis-section">
+                  <h3>Potentially Problematic Licenses</h3>
+                  <p className="section-description">
+                    Licenses that may have viral/copyleft requirements (GPL, AGPL, LGPL, etc.)
+                  </p>
+                  <div className="analysis-list">
+                    {licenseAnalysis.license_groups
+                      .filter((g) => g.is_problematic)
+                      .map((group) => (
+                        <div key={group.license} className="analysis-item mismatch">
+                          <div className="analysis-item-header">
+                            <span className="version-badge problematic">{group.license}</span>
+                            <span className="analysis-count">{group.packages.length} packages</span>
+                          </div>
+                          <div className="version-projects">
+                            {group.packages.slice(0, 10).join(", ")}
+                            {group.packages.length > 10 && ` ...and ${group.packages.length - 10} more`}
+                          </div>
+                        </div>
+                      ))}
+                    {licenseAnalysis.license_groups.filter((g) => g.is_problematic).length === 0 && (
+                      <p className="no-items">No problematic licenses found</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="analysis-section">
+                  <h3>All License Types ({licenseAnalysis.license_groups.length})</h3>
+                  <p className="section-description">
+                    License distribution across all dependencies
+                  </p>
+                  <div className="analysis-list">
+                    {licenseAnalysis.license_groups
+                      .filter((g) => !g.is_problematic)
+                      .slice(0, 30)
+                      .map((group) => (
+                        <div key={group.license} className="analysis-item">
+                          <div className="analysis-item-header">
+                            <span className="version-badge">{group.license}</span>
+                            <span className="analysis-count">{group.packages.length} packages</span>
+                          </div>
+                          <div className="version-projects">
+                            {group.packages.slice(0, 10).join(", ")}
+                            {group.packages.length > 10 && ` ...and ${group.packages.length - 10} more`}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                <div className="analysis-section">
+                  <h3>Per-Project Results</h3>
+                  <div className="deps-list">
+                    {licenseAnalysis.projects
+                      .filter((p) => p.success)
+                      .sort((a, b) => b.licenses.length - a.licenses.length)
+                      .map((result) => (
+                        <div key={result.project_path} className="deps-project">
+                          <div className="deps-project-header">
+                            <div className="deps-project-info">
+                              <span className="deps-project-name">{result.project_name}</span>
+                              <span className="deps-project-path">{result.project_path}</span>
+                            </div>
+                            <div className="deps-project-count">
+                              <span className="deps-uptodate">
+                                {result.licenses.length} dependencies
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {licenseAnalysis.projects.filter((r) => !r.success).length > 0 && (
+                      <div className="deps-errors">
+                        <h4>Errors</h4>
+                        {licenseAnalysis.projects
+                          .filter((r) => !r.success)
+                          .map((result) => (
+                            <div key={result.project_path} className="deps-error-row">
+                              <span>{result.project_name}</span>
+                              <span className="error-text">{result.error}</span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </>

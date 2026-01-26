@@ -935,6 +935,194 @@ pub fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
     }
 }
 
+// ============ License Analysis ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseInfo {
+    pub name: String,
+    pub version: String,
+    pub license: String,
+    pub authors: Option<String>,
+    pub repository: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseGroup {
+    pub license: String,
+    pub packages: Vec<String>,
+    pub is_problematic: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseResult {
+    pub project_path: String,
+    pub project_name: String,
+    pub licenses: Vec<LicenseInfo>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseAnalysis {
+    pub projects: Vec<LicenseResult>,
+    pub license_groups: Vec<LicenseGroup>,
+    pub total_packages: usize,
+    pub problematic_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoLicenseEntry {
+    name: String,
+    version: String,
+    authors: Option<String>,
+    repository: Option<String>,
+    license: Option<String>,
+}
+
+// Licenses that may have problematic requirements for commercial use
+const PROBLEMATIC_LICENSES: &[&str] = &[
+    "GPL",
+    "AGPL",
+    "LGPL",
+    "CC-BY-SA",
+    "CC-BY-NC",
+    "SSPL",
+    "BSL",
+    "BUSL",
+    "Elastic",
+    "Commons Clause",
+];
+
+fn is_problematic_license(license: &str) -> bool {
+    let upper = license.to_uppercase();
+    PROBLEMATIC_LICENSES
+        .iter()
+        .any(|p| upper.contains(&p.to_uppercase()))
+}
+
+#[tauri::command]
+pub fn check_licenses(project_path: String) -> LicenseResult {
+    let path = PathBuf::from(&project_path);
+    let project_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| project_path.clone());
+
+    // Run cargo-license with JSON output
+    let output = Command::new("cargo")
+        .args(["license", "--json"])
+        .current_dir(&path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            match serde_json::from_str::<Vec<CargoLicenseEntry>>(&stdout) {
+                Ok(parsed) => {
+                    let licenses: Vec<LicenseInfo> = parsed
+                        .into_iter()
+                        .map(|e| LicenseInfo {
+                            name: e.name,
+                            version: e.version,
+                            license: e.license.unwrap_or_else(|| "Unknown".to_string()),
+                            authors: e.authors,
+                            repository: e.repository,
+                        })
+                        .collect();
+
+                    LicenseResult {
+                        project_path,
+                        project_name,
+                        licenses,
+                        success: true,
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    LicenseResult {
+                        project_path,
+                        project_name,
+                        licenses: vec![],
+                        success: false,
+                        error: Some(format!("Failed to parse output: {}. Stderr: {}", e, stderr)),
+                    }
+                }
+            }
+        }
+        Err(e) => LicenseResult {
+            project_path,
+            project_name,
+            licenses: vec![],
+            success: false,
+            error: Some(format!("Failed to run cargo-license: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn check_all_licenses(project_paths: Vec<String>) -> LicenseAnalysis {
+    use std::collections::HashMap;
+
+    let projects: Vec<LicenseResult> = project_paths.into_iter().map(check_licenses).collect();
+
+    // Aggregate licenses across all projects
+    let mut license_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for proj in &projects {
+        if proj.success {
+            for lic in &proj.licenses {
+                license_map
+                    .entry(lic.license.clone())
+                    .or_default()
+                    .push(format!("{}@{}", lic.name, lic.version));
+            }
+        }
+    }
+
+    // Deduplicate packages per license
+    for packages in license_map.values_mut() {
+        packages.sort();
+        packages.dedup();
+    }
+
+    let mut license_groups: Vec<LicenseGroup> = license_map
+        .into_iter()
+        .map(|(license, packages)| {
+            let is_problematic = is_problematic_license(&license);
+            LicenseGroup {
+                license,
+                packages,
+                is_problematic,
+            }
+        })
+        .collect();
+
+    // Sort: problematic first, then by package count
+    license_groups.sort_by(|a, b| {
+        if a.is_problematic != b.is_problematic {
+            b.is_problematic.cmp(&a.is_problematic)
+        } else {
+            b.packages.len().cmp(&a.packages.len())
+        }
+    });
+
+    let total_packages: usize = license_groups.iter().map(|g| g.packages.len()).sum();
+    let problematic_count = license_groups
+        .iter()
+        .filter(|g| g.is_problematic)
+        .map(|g| g.packages.len())
+        .sum();
+
+    LicenseAnalysis {
+        projects,
+        license_groups,
+        total_packages,
+        problematic_count,
+    }
+}
+
 // ============ Toolchain Analysis ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

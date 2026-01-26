@@ -995,3 +995,10 @@ button svg {
   font-family: monospace;
   color: var(--accent);
 }
+
+/* License compliance */
+.version-badge.problematic {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--error);
+  border: 1px solid var(--error);
+}
