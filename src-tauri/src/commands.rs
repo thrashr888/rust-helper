@@ -1712,6 +1712,20 @@ pub fn check_required_tools() -> Vec<ToolStatus> {
             install_cmd: "cargo install cargo-license".to_string(),
             description: "Check dependency licenses".to_string(),
         },
+        ToolStatus {
+            name: "cargo-bloat".to_string(),
+            command: "bloat".to_string(),
+            installed: check_tool_installed("cargo", "bloat"),
+            install_cmd: "cargo install cargo-bloat".to_string(),
+            description: "Analyze binary size and bloat".to_string(),
+        },
+        ToolStatus {
+            name: "cargo-tarpaulin".to_string(),
+            command: "tarpaulin".to_string(),
+            installed: check_tool_installed("cargo", "tarpaulin"),
+            install_cmd: "cargo install cargo-tarpaulin".to_string(),
+            description: "Code coverage reporting".to_string(),
+        },
     ]
 }
 
