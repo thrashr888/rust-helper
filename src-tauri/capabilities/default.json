@@ -9,6 +9,8 @@
     "core:default",
     "dialog:default",
     "shell:default",
-    "window-state:default"
+    "window-state:default",
+    "updater:default",
+    "process:default"
   ]
 }

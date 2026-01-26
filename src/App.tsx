@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import AnsiToHtml from "ansi-to-html";
@@ -45,6 +45,8 @@ import {
   Cpu,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { check, Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 type View =
   | "projects"
@@ -206,6 +208,40 @@ interface BinarySizes {
   debug: number | null;
   release: number | null;
   binaries: BinaryInfo[];
+}
+
+interface BloatCrate {
+  name: string;
+  size: number;
+  size_percent: number;
+}
+
+interface BloatFunction {
+  name: string;
+  size: number;
+  size_percent: number;
+  crate_name: string | null;
+}
+
+interface BloatAnalysis {
+  file_size: number;
+  text_size: number;
+  crates: BloatCrate[];
+  functions: BloatFunction[];
+}
+
+interface CoverageFile {
+  path: string;
+  covered: number;
+  coverable: number;
+  percent: number;
+}
+
+interface CoverageResult {
+  files: CoverageFile[];
+  total_covered: number;
+  total_coverable: number;
+  coverage_percent: number;
 }
 
 interface MsrvInfo {
@@ -407,6 +443,15 @@ function App() {
   const [cargoFeatures, setCargoFeatures] = useState<CargoFeatures | null>(null);
   const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
   const [binarySizes, setBinarySizes] = useState<BinarySizes | null>(null);
+  const [bloatAnalysis, setBloatAnalysis] = useState<BloatAnalysis | null>(
+    null,
+  );
+  const [analyzingBloat, setAnalyzingBloat] = useState(false);
+  const [coverageResult, setCoverageResult] = useState<CoverageResult | null>(
+    null,
+  );
+  const [runningCoverage, setRunningCoverage] = useState(false);
+  const [coverageError, setCoverageError] = useState<string | null>(null);
   const [msrvInfo, setMsrvInfo] = useState<MsrvInfo | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
@@ -415,6 +460,10 @@ function App() {
   const [upgradingHomebrew, setUpgradingHomebrew] = useState(false);
   const [rustHomebrewStatus, setRustHomebrewStatus] = useState<RustHomebrewStatus | null>(null);
   const [upgradingRustHomebrew, setUpgradingRustHomebrew] = useState(false);
+  const [appUpdate, setAppUpdate] = useState<Update | null>(null);
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -808,6 +857,7 @@ function App() {
     setMsrvInfo(null);
     setWorkspaceInfo(null);
     setGithubActionsStatus(null);
+    setBloatAnalysis(null);
     setView("project-detail");
 
     // Load project info in background (parallel)
@@ -997,6 +1047,50 @@ function App() {
     }
   };
 
+  const checkForAppUpdate = async () => {
+    setCheckingForUpdates(true);
+    try {
+      const update = await check();
+      setAppUpdate(update);
+      if (!update) {
+        console.log("No updates available");
+      }
+    } catch (e) {
+      console.error("Failed to check for updates:", e);
+    } finally {
+      setCheckingForUpdates(false);
+    }
+  };
+
+  const installAppUpdate = async () => {
+    if (!appUpdate) return;
+    setInstallingUpdate(true);
+    setUpdateProgress(0);
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+      await appUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          contentLength = event.data.contentLength || 0;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          if (contentLength > 0) {
+            setUpdateProgress(Math.round((downloaded / contentLength) * 100));
+          }
+        } else if (event.event === "Finished") {
+          setUpdateProgress(100);
+        }
+      });
+      await relaunch();
+    } catch (e) {
+      console.error("Failed to install update:", e);
+      alert(`Update failed: ${e}`);
+    } finally {
+      setInstallingUpdate(false);
+      setUpdateProgress(null);
+    }
+  };
+
   const performGlobalSearch = async () => {
     if (!globalSearchQuery.trim() || globalSearchQuery.trim().length < 2) return;
     setSearching(true);
@@ -1012,6 +1106,89 @@ function App() {
     }
     setSearching(false);
     setHasSearched(true);
+  };
+
+  const analyzeBloat = async (release: boolean = true) => {
+    if (!selectedProject) return;
+    setAnalyzingBloat(true);
+    try {
+      const result = await invoke<BloatAnalysis>("analyze_bloat", {
+        projectPath: selectedProject.path,
+        release,
+      });
+      setBloatAnalysis(result);
+    } catch (e) {
+      console.error("Failed to analyze bloat:", e);
+      alert(`Bloat analysis failed: ${e}`);
+    }
+    setAnalyzingBloat(false);
+  };
+
+  const runCoverage = async () => {
+    if (!selectedProject) return;
+    setRunningCoverage(true);
+    setCoverageError(null);
+    setCoverageResult(null);
+    try {
+      const jsonStr = await invoke<string>("run_cargo_tarpaulin", {
+        projectPath: selectedProject.path,
+      });
+      // Parse tarpaulin JSON output
+      const data = JSON.parse(jsonStr);
+      // Tarpaulin JSON has different formats, handle the common ones
+      let files: CoverageFile[] = [];
+      let totalCovered = 0;
+      let totalCoverable = 0;
+
+      if (Array.isArray(data)) {
+        // Tarpaulin array format - each entry is a file
+        data.forEach((file: { path?: string[]; covered?: number; coverable?: number }) => {
+          if (file.path && Array.isArray(file.path)) {
+            const filePath = file.path.join("/");
+            const covered = file.covered || 0;
+            const coverable = file.coverable || 0;
+            totalCovered += covered;
+            totalCoverable += coverable;
+            if (coverable > 0) {
+              files.push({
+                path: filePath,
+                covered,
+                coverable,
+                percent: (covered / coverable) * 100,
+              });
+            }
+          }
+        });
+      } else if (data.files) {
+        // Alternative format with files array
+        data.files.forEach((file: { path: string; covered: number; coverable: number }) => {
+          totalCovered += file.covered;
+          totalCoverable += file.coverable;
+          if (file.coverable > 0) {
+            files.push({
+              path: file.path,
+              covered: file.covered,
+              coverable: file.coverable,
+              percent: (file.covered / file.coverable) * 100,
+            });
+          }
+        });
+      }
+
+      // Sort by coverage percentage (lowest first)
+      files.sort((a, b) => a.percent - b.percent);
+
+      setCoverageResult({
+        files,
+        total_covered: totalCovered,
+        total_coverable: totalCoverable,
+        coverage_percent: totalCoverable > 0 ? (totalCovered / totalCoverable) * 100 : 0,
+      });
+    } catch (e) {
+      console.error("Failed to run coverage:", e);
+      setCoverageError(String(e));
+    }
+    setRunningCoverage(false);
   };
 
   // Commands that benefit from streaming output
@@ -1146,6 +1323,7 @@ function App() {
     loadRustVersionInfo();
     checkHomebrewStatus();
     checkRustHomebrewStatus();
+    checkForAppUpdate();
   }, []);
 
   useEffect(() => {
@@ -1496,7 +1674,10 @@ function App() {
                 {searching ? (
                   <Spinner size={16} className="spinning" />
                 ) : (
-                  <button onClick={performGlobalSearch} disabled={globalSearchQuery.trim().length < 2}>
+                  <button
+                    onClick={performGlobalSearch}
+                    disabled={globalSearchQuery.trim().length < 2}
+                  >
                     Search
                   </button>
                 )}
@@ -1522,8 +1703,11 @@ function App() {
                 </div>
                 <div className="search-results-list">
                   {globalSearchResults.map((result, i) => {
-                    // Build highlighted line content
-                    const highlightMatches = (content: string, matches: SearchMatch[]) => {
+                    // Build highlighted line content using createElement to avoid Prettier adding whitespace
+                    const highlightMatches = (
+                      content: string,
+                      matches: SearchMatch[],
+                    ): React.ReactNode => {
                       if (!matches || matches.length === 0) return content;
 
                       const parts: React.ReactNode[] = [];
@@ -1534,11 +1718,13 @@ function App() {
                         if (match.start > lastEnd) {
                           parts.push(content.slice(lastEnd, match.start));
                         }
-                        // Add highlighted match
+                        // Add highlighted match - use createElement to avoid JSX whitespace
                         parts.push(
-                          <mark key={idx} className="search-highlight">
-                            {content.slice(match.start, match.end)}
-                          </mark>
+                          React.createElement(
+                            "mark",
+                            { key: `match-${idx}`, className: "search-highlight" },
+                            content.slice(match.start, match.end),
+                          ),
                         );
                         lastEnd = match.end;
                       });
@@ -1548,7 +1734,7 @@ function App() {
                         parts.push(content.slice(lastEnd));
                       }
 
-                      return parts;
+                      return React.createElement(React.Fragment, null, ...parts);
                     };
 
                     return (
@@ -1562,7 +1748,10 @@ function App() {
                               {result.project_name}
                             </span>
                             <span className="search-result-file">
-                              {result.file_path.replace(result.project_path + "/", "")}
+                              {result.file_path.replace(
+                                result.project_path + "/",
+                                "",
+                              )}
                               :{result.line_number}
                             </span>
                           </div>
@@ -1582,11 +1771,35 @@ function App() {
                         </div>
                         <div className="search-result-code">
                           {result.context_before.map((ctx) => (
-                            <pre key={`before-${ctx.line_number}`} className="search-context-line"><span className="line-number">{ctx.line_number}</span>{ctx.content}</pre>
+                            <pre
+                              key={`before-${ctx.line_number}`}
+                              className="search-context-line"
+                            >
+                              <span className="line-number">
+                                {ctx.line_number}
+                              </span>
+                              {ctx.content}
+                            </pre>
                           ))}
-                          <pre className="search-match-line"><span className="line-number">{result.line_number}</span>{highlightMatches(result.line_content, result.matches)}</pre>
+                          <pre className="search-match-line">
+                            <span className="line-number">
+                              {result.line_number}
+                            </span>
+                            {highlightMatches(
+                              result.line_content,
+                              result.matches,
+                            )}
+                          </pre>
                           {result.context_after.map((ctx) => (
-                            <pre key={`after-${ctx.line_number}`} className="search-context-line"><span className="line-number">{ctx.line_number}</span>{ctx.content}</pre>
+                            <pre
+                              key={`after-${ctx.line_number}`}
+                              className="search-context-line"
+                            >
+                              <span className="line-number">
+                                {ctx.line_number}
+                              </span>
+                              {ctx.content}
+                            </pre>
                           ))}
                         </div>
                       </div>
@@ -1599,7 +1812,9 @@ function App() {
             {globalSearchResults.length === 0 && !searching && hasSearched && (
               <div className="empty-state">
                 <p>No results found for "{globalSearchQuery}"</p>
-                <p className="hint">Try different keywords or check your scan directory</p>
+                <p className="hint">
+                  Try different keywords or check your scan directory
+                </p>
               </div>
             )}
 
@@ -1607,7 +1822,10 @@ function App() {
               <div className="empty-state">
                 <Code size={48} />
                 <p>Enter a search term to find code across all projects</p>
-                <p className="hint">Uses ripgrep for fast searching. Minimum 2 characters required.</p>
+                <p className="hint">
+                  Uses ripgrep for fast searching. Minimum 2 characters
+                  required.
+                </p>
               </div>
             )}
           </>
@@ -2509,19 +2727,23 @@ function App() {
                   >
                     <ArrowLeft size={20} />
                   </button>
-                  {workspaceInfo?.is_member_of_workspace && workspaceInfo.parent_workspace_name && (
-                    <button
-                      className="parent-workspace-link"
-                      onClick={() => {
-                        const parent = projects.find(p => p.path === workspaceInfo.parent_workspace_path);
-                        if (parent) openProjectDetail(parent);
-                      }}
-                      title={`Go to parent workspace: ${workspaceInfo.parent_workspace_path}`}
-                    >
-                      {workspaceInfo.parent_workspace_name}
-                      <span className="breadcrumb-sep">›</span>
-                    </button>
-                  )}
+                  {workspaceInfo?.is_member_of_workspace &&
+                    workspaceInfo.parent_workspace_name && (
+                      <button
+                        className="parent-workspace-link"
+                        onClick={() => {
+                          const parent = projects.find(
+                            (p) =>
+                              p.path === workspaceInfo.parent_workspace_path,
+                          );
+                          if (parent) openProjectDetail(parent);
+                        }}
+                        title={`Go to parent workspace: ${workspaceInfo.parent_workspace_path}`}
+                      >
+                        {workspaceInfo.parent_workspace_name}
+                        <span className="breadcrumb-sep">›</span>
+                      </button>
+                    )}
                   <h2>{selectedProject.name}</h2>
                   <button
                     className="icon-btn"
@@ -2538,36 +2760,52 @@ function App() {
                     </span>
                   )}
                   {msrvInfo?.msrv && (
-                    <span className="badge badge-rust" title="Minimum Supported Rust Version">
+                    <span
+                      className="badge badge-rust"
+                      title="Minimum Supported Rust Version"
+                    >
                       MSRV {msrvInfo.msrv}
                     </span>
                   )}
                   {githubActionsStatus?.has_workflows && (
-                    <span className="badge badge-ci" title="Has GitHub Actions workflows">
+                    <span
+                      className="badge badge-ci"
+                      title="Has GitHub Actions workflows"
+                    >
                       <GitBranch size={12} /> CI
                     </span>
                   )}
                   {workspaceInfo?.is_workspace && (
-                    <span className="badge badge-workspace" title={`Workspace with ${workspaceInfo.members.length} members`}>
-                      <FolderOpen size={12} /> {workspaceInfo.members.length} crates
+                    <span
+                      className="badge badge-workspace"
+                      title={`Workspace with ${workspaceInfo.members.length} members`}
+                    >
+                      <FolderOpen size={12} /> {workspaceInfo.members.length}{" "}
+                      crates
                     </span>
                   )}
-                  {workspaceInfo?.is_workspace && workspaceInfo.members.length > 0 && (
-                    <select
-                      className="workspace-select"
-                      value={workspaceInfo.members.find(m => m.is_current)?.path || ""}
-                      onChange={(e) => {
-                        const project = projects.find((p) => p.path === e.target.value);
-                        if (project) openProjectDetail(project);
-                      }}
-                    >
-                      {workspaceInfo.members.map((member) => (
-                        <option key={member.path} value={member.path}>
-                          {member.name} {member.is_current ? "(current)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {workspaceInfo?.is_workspace &&
+                    workspaceInfo.members.length > 0 && (
+                      <select
+                        className="workspace-select"
+                        value={
+                          workspaceInfo.members.find((m) => m.is_current)
+                            ?.path || ""
+                        }
+                        onChange={(e) => {
+                          const project = projects.find(
+                            (p) => p.path === e.target.value,
+                          );
+                          if (project) openProjectDetail(project);
+                        }}
+                      >
+                        {workspaceInfo.members.map((member) => (
+                          <option key={member.path} value={member.path}>
+                            {member.name} {member.is_current ? "(current)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                 </div>
                 <div className="info-row path-row">
                   <button
@@ -2598,26 +2836,36 @@ function App() {
               <div className="project-stats-compact">
                 <div className="stat-row">
                   <span className="stat-label">Target</span>
-                  <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
+                  <span className="stat-value">
+                    {formatBytes(selectedProject.target_size)}
+                  </span>
                 </div>
                 {binarySizes?.release && (
                   <div className="stat-row">
                     <span className="stat-label">Binary</span>
-                    <span className="stat-value">{formatBytes(binarySizes.release)}</span>
+                    <span className="stat-value">
+                      {formatBytes(binarySizes.release)}
+                    </span>
                   </div>
                 )}
                 <div className="stat-row">
                   <span className="stat-label">Deps</span>
-                  <span className="stat-value">{selectedProject.dep_count}</span>
+                  <span className="stat-value">
+                    {selectedProject.dep_count}
+                  </span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Modified</span>
-                  <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
+                  <span className="stat-value">
+                    {formatTimeAgo(selectedProject.last_modified)}
+                  </span>
                 </div>
                 {gitInfo && (
                   <div className="stat-row">
                     <span className="stat-label">Commits</span>
-                    <span className="stat-value">{gitInfo.commit_count.toLocaleString()}</span>
+                    <span className="stat-value">
+                      {gitInfo.commit_count.toLocaleString()}
+                    </span>
                   </div>
                 )}
               </div>
@@ -2682,328 +2930,456 @@ function App() {
               <div className="commands-layout">
                 <div className="commands-panel">
                   <div className="command-groups">
-                  <div className="command-group">
-                    <h4 className="command-group-label">Build & Run</h4>
-                    <div className="command-grid">
-                      <button
-                        onClick={() => runCargoCommand("check", ["--quiet"])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "check" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Code size={16} />
-                        )}
-                        Check
-                      </button>
-                      <button
-                        onClick={() => runCargoCommand("build", ["--quiet"])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "build" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Wrench size={16} />
-                        )}
-                        Build
-                      </button>
-                      <button
-                        onClick={() =>
-                          runCargoCommand("build", ["--release", "--quiet"])
-                        }
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "build" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Wrench size={16} />
-                        )}
-                        Build Release
-                      </button>
-                      <button
-                        onClick={() => runCargoCommand("run", [])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "run" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Play size={16} />
-                        )}
-                        Run
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="command-group">
-                    <h4 className="command-group-label">Testing</h4>
-                    <div className="command-grid">
-                      <button
-                        onClick={() => runCargoCommand("test", ["--color", "always"])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "test" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Bug size={16} />
-                        )}
-                        Test
-                      </button>
-                      <button
-                        onClick={() => runCargoCommand("bench", [])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "bench" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Timer size={16} />
-                        )}
-                        Bench
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="command-group">
-                    <h4 className="command-group-label">Code Quality</h4>
-                    <div className="command-grid">
-                      <button
-                        onClick={() => runCargoCommand("fmt", ["--", "--check"])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "fmt" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <FileCode size={16} />
-                        )}
-                        Fmt Check
-                      </button>
-                      <button
-                        onClick={() => runCargoCommand("fmt", [])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "fmt" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <FileCode size={16} />
-                        )}
-                        Fmt
-                      </button>
-                      <button
-                        onClick={() =>
-                          runCargoCommand("clippy", ["--", "-D", "warnings"])
-                        }
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "clippy" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Warning size={16} />
-                        )}
-                        Clippy
-                      </button>
-                      <button
-                        onClick={() =>
-                          runCargoCommand("clippy", [
-                            "--fix",
-                            "--allow-dirty",
-                            "--allow-staged",
-                            "--quiet",
-                          ])
-                        }
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "clippy" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Warning size={16} />
-                        )}
-                        Clippy Fix
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="command-group">
-                    <h4 className="command-group-label">Info</h4>
-                    <div className="command-grid">
-                      <button
-                        onClick={() =>
-                          runCargoCommand("doc", ["--no-deps", "--quiet"])
-                        }
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "doc" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <FileCode size={16} />
-                        )}
-                        Doc
-                      </button>
-                      <button
-                        onClick={() =>
-                          runCargoCommand("tree", ["--color", "always"])
-                        }
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "tree" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <Tree size={16} />
-                        )}
-                        Tree
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="command-group">
-                    <h4 className="command-group-label">Maintenance</h4>
-                    <div className="command-grid">
-                      <button
-                        onClick={() => runCargoCommand("update", ["--quiet"])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "update" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <ArrowsClockwise size={16} />
-                        )}
-                        Update
-                      </button>
-                      <button
-                        onClick={() => runCargoCommand("audit", [])}
-                        disabled={runningCommand !== null}
-                        className="command-btn"
-                      >
-                        {runningCommand === "audit" ? (
-                          <Spinner size={16} className="spinning" />
-                        ) : (
-                          <ShieldCheck size={16} />
-                        )}
-                        Audit
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {cargoFeatures && cargoFeatures.features.length > 0 && (
-                  <div className="cargo-features-section">
-                    <h4 className="command-group-label">Features</h4>
-                    <div className="feature-toggles">
-                      {cargoFeatures.features.map((feature) => (
-                        <label key={feature.name} className="feature-toggle">
-                          <input
-                            type="checkbox"
-                            checked={selectedFeatures.has(feature.name)}
-                            onChange={(e) => {
-                              const newFeatures = new Set(selectedFeatures);
-                              if (e.target.checked) {
-                                newFeatures.add(feature.name);
-                              } else {
-                                newFeatures.delete(feature.name);
-                              }
-                              setSelectedFeatures(newFeatures);
-                            }}
-                          />
-                          <span className="feature-name">{feature.name}</span>
-                          {feature.is_default && (
-                            <span className="feature-badge">default</span>
+                    <div className="command-group">
+                      <h4 className="command-group-label">Build & Run</h4>
+                      <div className="command-grid">
+                        <button
+                          onClick={() => runCargoCommand("check", ["--quiet"])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "check" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Code size={16} />
                           )}
-                          {feature.dependencies.length > 0 && (
-                            <span className="feature-deps" title={feature.dependencies.join(", ")}>
-                              +{feature.dependencies.length}
-                            </span>
+                          Check
+                        </button>
+                        <button
+                          onClick={() => runCargoCommand("build", ["--quiet"])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "build" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Wrench size={16} />
                           )}
-                        </label>
-                      ))}
+                          Build
+                        </button>
+                        <button
+                          onClick={() =>
+                            runCargoCommand("build", ["--release", "--quiet"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "build" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Wrench size={16} />
+                          )}
+                          Build Release
+                        </button>
+                        <button
+                          onClick={() => runCargoCommand("run", [])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "run" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Play size={16} />
+                          )}
+                          Run
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="command-group">
+                      <h4 className="command-group-label">Testing</h4>
+                      <div className="command-grid">
+                        <button
+                          onClick={() =>
+                            runCargoCommand("test", ["--color", "always"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "test" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Bug size={16} />
+                          )}
+                          Test
+                        </button>
+                        <button
+                          onClick={() => runCargoCommand("bench", [])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "bench" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Timer size={16} />
+                          )}
+                          Bench
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="command-group">
+                      <h4 className="command-group-label">Code Quality</h4>
+                      <div className="command-grid">
+                        <button
+                          onClick={() =>
+                            runCargoCommand("fmt", ["--", "--check"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "fmt" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <FileCode size={16} />
+                          )}
+                          Fmt Check
+                        </button>
+                        <button
+                          onClick={() => runCargoCommand("fmt", [])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "fmt" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <FileCode size={16} />
+                          )}
+                          Fmt
+                        </button>
+                        <button
+                          onClick={() =>
+                            runCargoCommand("clippy", ["--", "-D", "warnings"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "clippy" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Warning size={16} />
+                          )}
+                          Clippy
+                        </button>
+                        <button
+                          onClick={() =>
+                            runCargoCommand("clippy", [
+                              "--fix",
+                              "--allow-dirty",
+                              "--allow-staged",
+                              "--quiet",
+                            ])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "clippy" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Warning size={16} />
+                          )}
+                          Clippy Fix
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="command-group">
+                      <h4 className="command-group-label">Info</h4>
+                      <div className="command-grid">
+                        <button
+                          onClick={() =>
+                            runCargoCommand("doc", ["--no-deps", "--quiet"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "doc" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <FileCode size={16} />
+                          )}
+                          Doc
+                        </button>
+                        <button
+                          onClick={() =>
+                            runCargoCommand("tree", ["--color", "always"])
+                          }
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "tree" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Tree size={16} />
+                          )}
+                          Tree
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="command-group">
+                      <h4 className="command-group-label">Maintenance</h4>
+                      <div className="command-grid">
+                        <button
+                          onClick={() => runCargoCommand("update", ["--quiet"])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "update" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <ArrowsClockwise size={16} />
+                          )}
+                          Update
+                        </button>
+                        <button
+                          onClick={() => runCargoCommand("audit", [])}
+                          disabled={runningCommand !== null}
+                          className="command-btn"
+                        >
+                          {runningCommand === "audit" ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <ShieldCheck size={16} />
+                          )}
+                          Audit
+                        </button>
+                        <button
+                          onClick={() => analyzeBloat(true)}
+                          disabled={analyzingBloat}
+                          className="command-btn"
+                          title="Analyze binary bloat with cargo-bloat"
+                        >
+                          {analyzingBloat ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <ChartBar size={16} />
+                          )}
+                          Bloat
+                        </button>
+                        <button
+                          onClick={() => runCoverage()}
+                          disabled={runningCoverage}
+                          className="command-btn"
+                          title="Run code coverage with cargo-tarpaulin"
+                        >
+                          {runningCoverage ? (
+                            <Spinner size={16} className="spinning" />
+                          ) : (
+                            <Cpu size={16} />
+                          )}
+                          Coverage
+                        </button>
+                      </div>
                     </div>
                   </div>
-                )}
+
+                  {cargoFeatures && cargoFeatures.features.length > 0 && (
+                    <div className="cargo-features-section">
+                      <h4 className="command-group-label">Features</h4>
+                      <div className="feature-toggles">
+                        {cargoFeatures.features.map((feature) => (
+                          <label key={feature.name} className="feature-toggle">
+                            <input
+                              type="checkbox"
+                              checked={selectedFeatures.has(feature.name)}
+                              onChange={(e) => {
+                                const newFeatures = new Set(selectedFeatures);
+                                if (e.target.checked) {
+                                  newFeatures.add(feature.name);
+                                } else {
+                                  newFeatures.delete(feature.name);
+                                }
+                                setSelectedFeatures(newFeatures);
+                              }}
+                            />
+                            <span className="feature-name">{feature.name}</span>
+                            {feature.is_default && (
+                              <span className="feature-badge">default</span>
+                            )}
+                            {feature.dependencies.length > 0 && (
+                              <span
+                                className="feature-deps"
+                                title={feature.dependencies.join(", ")}
+                              >
+                                +{feature.dependencies.length}
+                              </span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="output-panel">
-                {runningCommand && !isStreaming && (
-                  <div className="command-running">
-                    <Spinner size={20} className="spinning" />
-                    Running cargo {runningCommand}...
-                  </div>
-                )}
-
-                {isStreaming && (
-                  <div className="command-output">
-                    <div className="command-output-header">
-                      <span className="command-status running">
-                        <Spinner size={16} className="spinning" /> Running
-                      </span>
-                      <span className="command-name">
-                        cargo {runningCommand}
-                      </span>
+                  {runningCommand && !isStreaming && (
+                    <div className="command-running">
+                      <Spinner size={20} className="spinning" />
+                      Running cargo {runningCommand}...
                     </div>
-                    <pre
-                      ref={outputRef}
-                      className="command-output-text streaming"
-                      dangerouslySetInnerHTML={{
-                        __html: DOMPurify.sanitize(
-                          streamingOutput
-                            .map((line) => ansiConverter.current.toHtml(line))
-                            .join("\n") || "(waiting for output...)",
-                        ),
-                      }}
-                    />
-                  </div>
-                )}
+                  )}
 
-                {commandOutput && !isStreaming && (
-                  <div className="command-output">
-                    <div className="command-output-header">
-                      <span
-                        className={`command-status ${commandOutput.success ? "success" : "error"}`}
-                      >
-                        {commandOutput.success ? (
-                          <>
-                            <CheckCircle size={16} weight="fill" /> Success
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={16} weight="fill" /> Failed (exit
-                            code: {commandOutput.exit_code})
-                          </>
-                        )}
-                      </span>
-                      <span className="command-name">
-                        cargo {commandOutput.command}
-                      </span>
+                  {isStreaming && (
+                    <div className="command-output">
+                      <div className="command-output-header">
+                        <span className="command-status running">
+                          <Spinner size={16} className="spinning" /> Running
+                        </span>
+                        <span className="command-name">
+                          cargo {runningCommand}
+                        </span>
+                      </div>
+                      <pre
+                        ref={outputRef}
+                        className="command-output-text streaming"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(
+                            streamingOutput
+                              .map((line) => ansiConverter.current.toHtml(line))
+                              .join("\n") || "(waiting for output...)",
+                          ),
+                        }}
+                      />
                     </div>
-                    <pre
-                      className="command-output-text"
-                      dangerouslySetInnerHTML={{
-                        __html: DOMPurify.sanitize(
-                          streamingOutput.length > 0
-                            ? streamingOutput
-                                .map((line) =>
-                                  ansiConverter.current.toHtml(line),
-                                )
-                                .join("\n")
-                            : ansiConverter.current.toHtml(
-                                commandOutput.stdout ||
-                                  commandOutput.stderr ||
-                                  "(no output)",
-                              ),
-                        ),
-                      }}
-                    />
-                  </div>
-                )}
+                  )}
+
+                  {commandOutput && !isStreaming && (
+                    <div className="command-output">
+                      <div className="command-output-header">
+                        <span
+                          className={`command-status ${commandOutput.success ? "success" : "error"}`}
+                        >
+                          {commandOutput.success ? (
+                            <>
+                              <CheckCircle size={16} weight="fill" /> Success
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={16} weight="fill" /> Failed (exit
+                              code: {commandOutput.exit_code})
+                            </>
+                          )}
+                        </span>
+                        <span className="command-name">
+                          cargo {commandOutput.command}
+                        </span>
+                      </div>
+                      <pre
+                        className="command-output-text"
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(
+                            streamingOutput.length > 0
+                              ? streamingOutput
+                                  .map((line) =>
+                                    ansiConverter.current.toHtml(line),
+                                  )
+                                  .join("\n")
+                              : ansiConverter.current.toHtml(
+                                  commandOutput.stdout ||
+                                    commandOutput.stderr ||
+                                    "(no output)",
+                                ),
+                          ),
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {bloatAnalysis && (
+                    <div className="bloat-analysis">
+                      <div className="bloat-header">
+                        <h4>Binary Size Analysis</h4>
+                        <span className="bloat-summary">
+                          Total: {formatBytes(bloatAnalysis.file_size)} | Code:{" "}
+                          {formatBytes(bloatAnalysis.text_size)}
+                        </span>
+                      </div>
+                      <div className="bloat-columns">
+                        <div className="bloat-column">
+                          <h5>By Crate</h5>
+                          <div className="bloat-list">
+                            {bloatAnalysis.crates
+                              .slice(0, 15)
+                              .map((crate, i) => (
+                                <div key={i} className="bloat-item">
+                                  <span className="bloat-name">
+                                    {crate.name}
+                                  </span>
+                                  <span className="bloat-size">
+                                    {formatBytes(crate.size)} (
+                                    {crate.size_percent.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                        <div className="bloat-column">
+                          <h5>Top Functions</h5>
+                          <div className="bloat-list">
+                            {bloatAnalysis.functions
+                              .slice(0, 15)
+                              .map((fn, i) => (
+                                <div key={i} className="bloat-item">
+                                  <span className="bloat-name" title={fn.name}>
+                                    {fn.name.length > 50
+                                      ? fn.name.slice(0, 50) + "..."
+                                      : fn.name}
+                                  </span>
+                                  <span className="bloat-size">
+                                    {formatBytes(fn.size)}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {coverageError && (
+                    <div className="coverage-error">
+                      <XCircle size={16} />
+                      <span>{coverageError}</span>
+                    </div>
+                  )}
+
+                  {coverageResult && (
+                    <div className="coverage-analysis">
+                      <div className="coverage-header">
+                        <h4>Code Coverage</h4>
+                        <span className={`coverage-badge ${coverageResult.coverage_percent >= 80 ? "good" : coverageResult.coverage_percent >= 50 ? "medium" : "low"}`}>
+                          {coverageResult.coverage_percent.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="coverage-summary">
+                        <span>
+                          {coverageResult.total_covered} / {coverageResult.total_coverable} lines covered
+                        </span>
+                      </div>
+                      <div className="coverage-files">
+                        <h5>Files by Coverage</h5>
+                        <div className="coverage-list">
+                          {coverageResult.files.slice(0, 20).map((file, i) => (
+                            <div key={i} className="coverage-item">
+                              <span className="coverage-file-name" title={file.path}>
+                                {file.path.split("/").pop()}
+                              </span>
+                              <div className="coverage-bar-container">
+                                <div
+                                  className={`coverage-bar ${file.percent >= 80 ? "good" : file.percent >= 50 ? "medium" : "low"}`}
+                                  style={{ width: `${Math.min(file.percent, 100)}%` }}
+                                />
+                              </div>
+                              <span className="coverage-percent">
+                                {file.percent.toFixed(0)}%
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -3578,8 +3954,10 @@ function App() {
                       <Gear size={16} /> Rust Helper
                     </span>
                     <span className="version-value version-with-status">
-                      {homebrewStatus?.current_version ? `v${homebrewStatus.current_version}` : "dev"}
-                      {homebrewStatus?.installed_via_homebrew && (
+                      {homebrewStatus?.current_version
+                        ? `v${homebrewStatus.current_version}`
+                        : "v0.1.0"}
+                      {homebrewStatus?.installed_via_homebrew ? (
                         homebrewStatus.update_available ? (
                           <span className="update-indicator">
                             <span className="update-badge">
@@ -3603,6 +3981,40 @@ function App() {
                             <CheckCircle size={14} weight="fill" />
                           </span>
                         )
+                      ) : appUpdate ? (
+                        <span className="update-indicator">
+                          <span className="update-badge">
+                            v{appUpdate.version} available
+                          </span>
+                          <button
+                            onClick={installAppUpdate}
+                            disabled={installingUpdate}
+                            className="upgrade-btn small"
+                          >
+                            {installingUpdate ? (
+                              <>
+                                <Spinner size={12} className="spinning" />
+                                {updateProgress !== null &&
+                                  `${updateProgress}%`}
+                              </>
+                            ) : (
+                              <>
+                                <ArrowUp size={12} />
+                                Update
+                              </>
+                            )}
+                          </button>
+                        </span>
+                      ) : checkingForUpdates ? (
+                        <Spinner size={14} className="spinning" />
+                      ) : (
+                        <button
+                          onClick={checkForAppUpdate}
+                          className="icon-btn"
+                          title="Check for updates"
+                        >
+                          <ArrowsClockwise size={14} />
+                        </button>
                       )}
                     </span>
                   </div>
@@ -3612,8 +4024,8 @@ function App() {
                     </span>
                     <span className="version-value version-with-status">
                       {rustVersionInfo.rustc_version || "Not installed"}
-                      {rustHomebrewStatus?.installed_via_homebrew && (
-                        rustHomebrewStatus.update_available ? (
+                      {rustHomebrewStatus?.installed_via_homebrew &&
+                        (rustHomebrewStatus.update_available ? (
                           <span className="update-indicator">
                             <span className="update-badge">
                               v{rustHomebrewStatus.latest_version} available
@@ -3635,8 +4047,7 @@ function App() {
                           <span className="up-to-date" title="Up to date">
                             <CheckCircle size={14} weight="fill" />
                           </span>
-                        )
-                      )}
+                        ))}
                     </span>
                   </div>
                   <div className="version-row">
@@ -3659,7 +4070,9 @@ function App() {
                   )}
                   {rustVersionInfo.installed_toolchains.length > 1 && (
                     <div className="version-row">
-                      <span className="version-label">Installed Toolchains</span>
+                      <span className="version-label">
+                        Installed Toolchains
+                      </span>
                       <span className="version-value toolchain-list">
                         {rustVersionInfo.installed_toolchains.map((tc) => (
                           <span
