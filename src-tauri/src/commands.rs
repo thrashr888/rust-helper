@@ -2597,14 +2597,21 @@ pub struct InstalledIde {
 #[tauri::command]
 pub fn detect_installed_ides() -> Vec<InstalledIde> {
     let ides = vec![
+        // Popular GUI editors
         ("vscode", "VS Code", "code"),
         ("cursor", "Cursor", "cursor"),
         ("zed", "Zed", "zed"),
-        ("rustrover", "RustRover", "rustrover"),
-        ("idea", "IntelliJ IDEA", "idea"),
         ("sublime", "Sublime Text", "subl"),
         ("nova", "Nova", "nova"),
+        // JetBrains IDEs
+        ("rustrover", "RustRover", "rustrover"),
+        ("idea", "IntelliJ IDEA", "idea"),
+        ("clion", "CLion", "clion"),
         ("fleet", "Fleet", "fleet"),
+        // AI-powered IDEs
+        ("kiro", "AWS Kiro", "kiro"),
+        ("antigravity", "Google Antigravity", "antigravity"),
+        // Terminal-based editors
         ("neovim", "Neovim", "nvim"),
         ("vim", "Vim", "vim"),
         ("emacs", "Emacs", "emacs"),
@@ -2679,12 +2686,19 @@ pub fn open_file_in_ide(
             // Sublime: file:line
             vec![format!("{}:{}", file_path, line_number)]
         }
-        "idea" | "rustrover" | "fleet" => {
+        "idea" | "rustrover" | "clion" | "fleet" => {
             // JetBrains: --line line file
             vec![
                 "--line".to_string(),
                 line_number.to_string(),
                 file_path.clone(),
+            ]
+        }
+        "kiro" | "antigravity" => {
+            // AI IDEs - assume VS Code-like syntax
+            vec![
+                "--goto".to_string(),
+                format!("{}:{}", file_path, line_number),
             ]
         }
         "nvim" | "vim" => {
