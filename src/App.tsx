@@ -1223,7 +1223,12 @@ function App() {
               </button>
             </div>
 
-            {outdatedResults.length === 0 && !checkingOutdated ? (
+            {checkingOutdated ? (
+              <div className="empty-state">
+                <Spinner size={24} className="spinning" />
+                <p>Checking all projects for outdated dependencies...</p>
+              </div>
+            ) : outdatedResults.length === 0 ? (
               <div className="empty-state">
                 <p>
                   Click "Check All Projects" to scan for outdated dependencies
@@ -2452,6 +2457,11 @@ function App() {
                       {projectOutdated.error}
                     </div>
                   )
+                ) : checkingProjectOutdated ? (
+                  <div className="empty-state">
+                    <Spinner size={24} className="spinning" />
+                    <p>Checking for outdated dependencies...</p>
+                  </div>
                 ) : (
                   <div className="empty-state">
                     <p>
