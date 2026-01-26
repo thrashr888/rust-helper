@@ -39,10 +39,8 @@ import {
   Timer,
   Scroll,
   GithubLogo,
-  GitCommit,
   Book,
   MagnifyingGlass,
-  HardDrive,
   GitBranch,
   Cpu,
 } from "@phosphor-icons/react";
@@ -2397,44 +2395,29 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className="project-stats">
-                <div className="stat-card">
-                  <span className="stat-value">
-                    {formatBytes(selectedProject.target_size)}
-                  </span>
-                  <span className="stat-label">Target Size</span>
+              <div className="project-stats-compact">
+                <div className="stat-row">
+                  <span className="stat-label">Target</span>
+                  <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
                 </div>
                 {binarySizes?.release && (
-                  <div className="stat-card">
-                    <span className="stat-value">
-                      <HardDrive size={14} style={{ marginRight: 4, verticalAlign: "middle" }} />
-                      {formatBytes(binarySizes.release)}
-                    </span>
-                    <span className="stat-label">Release Binary</span>
+                  <div className="stat-row">
+                    <span className="stat-label">Binary</span>
+                    <span className="stat-value">{formatBytes(binarySizes.release)}</span>
                   </div>
                 )}
-                <div className="stat-card">
-                  <span className="stat-value">
-                    {selectedProject.dep_count}
-                  </span>
-                  <span className="stat-label">Dependencies</span>
+                <div className="stat-row">
+                  <span className="stat-label">Deps</span>
+                  <span className="stat-value">{selectedProject.dep_count}</span>
                 </div>
-                <div className="stat-card">
-                  <span className="stat-value">
-                    {formatTimeAgo(selectedProject.last_modified)}
-                  </span>
-                  <span className="stat-label">Last Modified</span>
+                <div className="stat-row">
+                  <span className="stat-label">Modified</span>
+                  <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
                 </div>
                 {gitInfo && (
-                  <div className="stat-card">
-                    <span className="stat-value">
-                      <GitCommit
-                        size={16}
-                        style={{ marginRight: 4, verticalAlign: "middle" }}
-                      />
-                      {gitInfo.commit_count.toLocaleString()}
-                    </span>
+                  <div className="stat-row">
                     <span className="stat-label">Commits</span>
+                    <span className="stat-value">{gitInfo.commit_count.toLocaleString()}</span>
                   </div>
                 )}
               </div>

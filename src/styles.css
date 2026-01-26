@@ -1101,27 +1101,34 @@ button svg {
   flex-shrink: 0;
 }
 
-.project-stats {
+.project-stats-compact {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
+  min-width: 140px;
 }
 
-.project-stats .stat-card {
-  padding: 8px 12px;
+.stat-row {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
-.project-stats .stat-value {
-  font-size: 14px;
-  margin-bottom: 0;
-}
-
-.project-stats .stat-label {
+.stat-row .stat-label {
   font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.stat-row .stat-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 /* Analysis view */
