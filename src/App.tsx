@@ -257,6 +257,7 @@ function App() {
   // Per-project analysis state
   const [projectOutdated, setProjectOutdated] = useState<OutdatedResult | null>(null);
   const [checkingProjectOutdated, setCheckingProjectOutdated] = useState(false);
+  const [upgradingPackage, setUpgradingPackage] = useState<string | null>(null);
   const [projectAudit, setProjectAudit] = useState<AuditResult | null>(null);
   const [checkingProjectAudit, setCheckingProjectAudit] = useState(false);
   const [projectLicenses, setProjectLicenses] = useState<LicenseResult | null>(null);
@@ -575,6 +576,26 @@ function App() {
     }
     removeJob(jobId);
     setRunningCommand(null);
+  };
+
+  const upgradePackage = async (packageName: string) => {
+    if (!selectedProject) return;
+    setUpgradingPackage(packageName);
+    setCommandOutput(null);
+    const jobId = `cargo-upgrade-${packageName}-${Date.now()}`;
+    addJob(jobId, `cargo upgrade ${packageName}...`);
+    try {
+      const result = await invoke<CargoCommandResult>("run_cargo_command", {
+        projectPath: selectedProject.path,
+        command: "upgrade",
+        args: [packageName],
+      });
+      setCommandOutput(result);
+    } catch (e) {
+      console.error("Failed to upgrade package:", e);
+    }
+    removeJob(jobId);
+    setUpgradingPackage(null);
   };
 
   const analyzeDependencies = async () => {
@@ -1951,11 +1972,11 @@ function App() {
                               <span className="dep-action">
                                 <button
                                   className="small"
-                                  onClick={() => runCargoCommand(`upgrade ${dep.name}`, [])}
-                                  disabled={runningCommand !== null}
+                                  onClick={() => upgradePackage(dep.name)}
+                                  disabled={runningCommand !== null || upgradingPackage !== null}
                                   title={`Upgrade ${dep.name} to ${dep.latest}`}
                                 >
-                                  {runningCommand === `upgrade ${dep.name}` ? (
+                                  {upgradingPackage === dep.name ? (
                                     <Spinner size={12} className="spinning" />
                                   ) : (
                                     <ArrowUp size={12} />
