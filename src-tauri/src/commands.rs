@@ -507,3 +507,319 @@ pub fn get_default_scan_root() -> String {
         .map(|h| h.join("Workspace").to_string_lossy().to_string())
         .unwrap_or_else(|| "/".to_string())
 }
+
+// ============ Security Audit ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Vulnerability {
+    pub id: String,
+    pub package: String,
+    pub version: String,
+    pub title: String,
+    pub description: String,
+    pub severity: String,
+    pub url: Option<String>,
+    pub patched_versions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditWarning {
+    pub kind: String,
+    pub package: String,
+    pub version: String,
+    pub title: String,
+    pub advisory_id: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditResult {
+    pub project_path: String,
+    pub project_name: String,
+    pub vulnerabilities: Vec<Vulnerability>,
+    pub warnings: Vec<AuditWarning>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditOutput {
+    vulnerabilities: CargoAuditVulns,
+    warnings: Option<CargoAuditWarnings>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct CargoAuditVulns {
+    list: Vec<CargoAuditVuln>,
+    count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditVuln {
+    advisory: CargoAuditAdvisory,
+    package: CargoAuditPackage,
+    versions: Option<CargoAuditVersions>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditAdvisory {
+    id: String,
+    title: String,
+    description: String,
+    url: Option<String>,
+    cvss: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditPackage {
+    name: String,
+    version: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditVersions {
+    patched: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditWarnings {
+    unmaintained: Option<Vec<CargoAuditWarning>>,
+    unsound: Option<Vec<CargoAuditWarning>>,
+    yanked: Option<Vec<CargoAuditWarning>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoAuditWarning {
+    kind: String,
+    package: CargoAuditPackage,
+    advisory: CargoAuditAdvisory,
+}
+
+#[tauri::command]
+pub fn check_audit(project_path: String) -> AuditResult {
+    let path = PathBuf::from(&project_path);
+    let project_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Run cargo audit with JSON output
+    let output = Command::new("cargo")
+        .args(["audit", "--json"])
+        .current_dir(&path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            // Parse JSON output (cargo audit may return non-zero exit code if vulnerabilities found)
+            match serde_json::from_str::<CargoAuditOutput>(&stdout) {
+                Ok(parsed) => {
+                    let vulnerabilities: Vec<Vulnerability> = parsed
+                        .vulnerabilities
+                        .list
+                        .into_iter()
+                        .map(|v| Vulnerability {
+                            id: v.advisory.id,
+                            package: v.package.name,
+                            version: v.package.version,
+                            title: v.advisory.title,
+                            description: v.advisory.description,
+                            severity: v.advisory.cvss.unwrap_or_else(|| "unknown".to_string()),
+                            url: v.advisory.url,
+                            patched_versions: v.versions.map(|v| v.patched).unwrap_or_default(),
+                        })
+                        .collect();
+
+                    let mut warnings: Vec<AuditWarning> = Vec::new();
+                    if let Some(w) = parsed.warnings {
+                        for warn in w.unmaintained.unwrap_or_default() {
+                            warnings.push(AuditWarning {
+                                kind: warn.kind,
+                                package: warn.package.name,
+                                version: warn.package.version,
+                                title: warn.advisory.title,
+                                advisory_id: warn.advisory.id,
+                                url: warn.advisory.url,
+                            });
+                        }
+                        for warn in w.unsound.unwrap_or_default() {
+                            warnings.push(AuditWarning {
+                                kind: warn.kind,
+                                package: warn.package.name,
+                                version: warn.package.version,
+                                title: warn.advisory.title,
+                                advisory_id: warn.advisory.id,
+                                url: warn.advisory.url,
+                            });
+                        }
+                        for warn in w.yanked.unwrap_or_default() {
+                            warnings.push(AuditWarning {
+                                kind: warn.kind,
+                                package: warn.package.name,
+                                version: warn.package.version,
+                                title: warn.advisory.title,
+                                advisory_id: warn.advisory.id,
+                                url: warn.advisory.url,
+                            });
+                        }
+                    }
+
+                    AuditResult {
+                        project_path,
+                        project_name,
+                        vulnerabilities,
+                        warnings,
+                        success: true,
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    AuditResult {
+                        project_path,
+                        project_name,
+                        vulnerabilities: vec![],
+                        warnings: vec![],
+                        success: false,
+                        error: Some(format!("Failed to parse output: {}. Stderr: {}", e, stderr)),
+                    }
+                }
+            }
+        }
+        Err(e) => AuditResult {
+            project_path,
+            project_name,
+            vulnerabilities: vec![],
+            warnings: vec![],
+            success: false,
+            error: Some(format!("Failed to run cargo audit: {}", e)),
+        },
+    }
+}
+
+#[tauri::command]
+pub fn check_all_audits(project_paths: Vec<String>) -> Vec<AuditResult> {
+    project_paths.into_iter().map(check_audit).collect()
+}
+
+// ============ Cargo Commands ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CargoCommandResult {
+    pub project_path: String,
+    pub command: String,
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+}
+
+#[tauri::command]
+pub fn run_cargo_command(
+    project_path: String,
+    command: String,
+    args: Vec<String>,
+) -> CargoCommandResult {
+    let path = PathBuf::from(&project_path);
+
+    let output = Command::new("cargo")
+        .arg(&command)
+        .args(&args)
+        .current_dir(&path)
+        .output();
+
+    match output {
+        Ok(output) => CargoCommandResult {
+            project_path,
+            command,
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code(),
+        },
+        Err(e) => CargoCommandResult {
+            project_path,
+            command,
+            success: false,
+            stdout: String::new(),
+            stderr: format!("Failed to execute command: {}", e),
+            exit_code: None,
+        },
+    }
+}
+
+// Convenience commands for common operations
+#[tauri::command]
+pub fn run_cargo_fmt_check(project_path: String) -> CargoCommandResult {
+    run_cargo_command(
+        project_path,
+        "fmt".to_string(),
+        vec!["--".to_string(), "--check".to_string()],
+    )
+}
+
+#[tauri::command]
+pub fn run_cargo_clippy(project_path: String) -> CargoCommandResult {
+    run_cargo_command(
+        project_path,
+        "clippy".to_string(),
+        vec!["--".to_string(), "-D".to_string(), "warnings".to_string()],
+    )
+}
+
+#[tauri::command]
+pub fn run_cargo_test(project_path: String) -> CargoCommandResult {
+    run_cargo_command(project_path, "test".to_string(), vec![])
+}
+
+#[tauri::command]
+pub fn run_cargo_build(project_path: String, release: bool) -> CargoCommandResult {
+    let args = if release {
+        vec!["--release".to_string()]
+    } else {
+        vec![]
+    };
+    run_cargo_command(project_path, "build".to_string(), args)
+}
+
+#[tauri::command]
+pub fn run_cargo_check(project_path: String) -> CargoCommandResult {
+    run_cargo_command(project_path, "check".to_string(), vec![])
+}
+
+#[tauri::command]
+pub fn run_cargo_doc(project_path: String) -> CargoCommandResult {
+    run_cargo_command(
+        project_path,
+        "doc".to_string(),
+        vec!["--no-deps".to_string()],
+    )
+}
+
+#[tauri::command]
+pub fn run_cargo_update(project_path: String) -> CargoCommandResult {
+    run_cargo_command(project_path, "update".to_string(), vec![])
+}
+
+#[tauri::command]
+pub fn run_cargo_run(project_path: String, release: bool) -> CargoCommandResult {
+    let args = if release {
+        vec!["--release".to_string()]
+    } else {
+        vec![]
+    };
+    run_cargo_command(project_path, "run".to_string(), args)
+}
+
+#[tauri::command]
+pub fn run_cargo_bench(project_path: String) -> CargoCommandResult {
+    run_cargo_command(project_path, "bench".to_string(), vec![])
+}
+
+#[tauri::command]
+pub fn run_cargo_tree(project_path: String) -> CargoCommandResult {
+    run_cargo_command(project_path, "tree".to_string(), vec![])
+}

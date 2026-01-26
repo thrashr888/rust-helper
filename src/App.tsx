@@ -20,6 +20,15 @@ import {
   Spinner,
   ArrowUp,
   Warning,
+  ArrowLeft,
+  Play,
+  Code,
+  Bug,
+  FileCode,
+  Wrench,
+  ArrowsClockwise,
+  Tree,
+  Timer,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -30,9 +39,48 @@ type View =
   | "security"
   | "health"
   | "analysis"
-  | "settings";
+  | "settings"
+  | "project-detail";
 
 type SortBy = "name" | "lastModified" | "size" | "deps";
+
+interface Vulnerability {
+  id: string;
+  package: string;
+  version: string;
+  title: string;
+  description: string;
+  severity: string;
+  url: string | null;
+  patched_versions: string[];
+}
+
+interface AuditWarning {
+  kind: string;
+  package: string;
+  version: string;
+  title: string;
+  advisory_id: string;
+  url: string | null;
+}
+
+interface AuditResult {
+  project_path: string;
+  project_name: string;
+  vulnerabilities: Vulnerability[];
+  warnings: AuditWarning[];
+  success: boolean;
+  error: string | null;
+}
+
+interface CargoCommandResult {
+  project_path: string;
+  command: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+}
 
 interface Project {
   name: string;
@@ -107,6 +155,15 @@ function App() {
   const [scanRoot, setScanRoot] = useState<string>("");
   const [scanRootInput, setScanRootInput] = useState<string>("");
   const [configLoaded, setConfigLoaded] = useState(false);
+
+  // Security audit state
+  const [auditResults, setAuditResults] = useState<AuditResult[]>([]);
+  const [checkingAudit, setCheckingAudit] = useState(false);
+
+  // Project detail state
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [commandOutput, setCommandOutput] = useState<CargoCommandResult | null>(null);
+  const [runningCommand, setRunningCommand] = useState<string | null>(null);
 
   const loadConfig = async () => {
     try {
@@ -251,6 +308,46 @@ function App() {
     }
   };
 
+  const checkAllAudits = async () => {
+    setCheckingAudit(true);
+    setAuditResults([]);
+    const projectsToCheck = projects
+      .filter((p) => !p.is_workspace_member)
+      .map((p) => p.path);
+    try {
+      const results = await invoke<AuditResult[]>("check_all_audits", {
+        projectPaths: projectsToCheck,
+      });
+      setAuditResults(results);
+    } catch (e) {
+      console.error("Failed to check audits:", e);
+    }
+    setCheckingAudit(false);
+  };
+
+  const openProjectDetail = (project: Project) => {
+    setSelectedProject(project);
+    setCommandOutput(null);
+    setView("project-detail");
+  };
+
+  const runCargoCommand = async (command: string, args: string[] = []) => {
+    if (!selectedProject) return;
+    setRunningCommand(command);
+    setCommandOutput(null);
+    try {
+      const result = await invoke<CargoCommandResult>("run_cargo_command", {
+        projectPath: selectedProject.path,
+        command,
+        args,
+      });
+      setCommandOutput(result);
+    } catch (e) {
+      console.error("Failed to run command:", e);
+    }
+    setRunningCommand(null);
+  };
+
   useEffect(() => {
     loadConfig();
   }, []);
@@ -332,6 +429,25 @@ function App() {
       totalOutdatedDeps,
     };
   }, [outdatedResults]);
+
+  const auditStats = useMemo(() => {
+    const projectsWithVulns = auditResults.filter(
+      (r) => r.success && r.vulnerabilities.length > 0
+    );
+    const totalVulns = projectsWithVulns.reduce(
+      (sum, r) => sum + r.vulnerabilities.length,
+      0
+    );
+    const totalWarnings = auditResults
+      .filter((r) => r.success)
+      .reduce((sum, r) => sum + r.warnings.length, 0);
+    return {
+      projectsChecked: auditResults.filter((r) => r.success).length,
+      projectsWithVulns: projectsWithVulns.length,
+      totalVulns,
+      totalWarnings,
+    };
+  }, [auditResults]);
 
   const navItems = [
     { id: "projects" as View, label: "Projects", icon: Folder },
@@ -423,11 +539,12 @@ function App() {
                   {filteredAndSortedProjects.map((project) => (
                     <div
                       key={project.path}
-                      className={`project-card ${
+                      className={`project-card clickable ${
                         favorites.has(project.path) ? "favorite" : ""
                       } ${hidden.has(project.path) ? "hidden-project" : ""} ${
                         project.is_workspace_member ? "workspace-member" : ""
                       }`}
+                      onClick={() => openProjectDetail(project)}
                     >
                       <div className="card-header">
                         <h3>{project.name}</h3>
@@ -436,7 +553,7 @@ function App() {
                             className={`icon-btn ${
                               favorites.has(project.path) ? "active" : ""
                             }`}
-                            onClick={() => toggleFavorite(project.path)}
+                            onClick={(e) => { e.stopPropagation(); toggleFavorite(project.path); }}
                             title={
                               favorites.has(project.path)
                                 ? "Remove from favorites"
@@ -452,7 +569,7 @@ function App() {
                             className={`icon-btn ${
                               hidden.has(project.path) ? "active" : ""
                             }`}
-                            onClick={() => toggleHidden(project.path)}
+                            onClick={(e) => { e.stopPropagation(); toggleHidden(project.path); }}
                             title={hidden.has(project.path) ? "Unhide" : "Hide"}
                           >
                             {hidden.has(project.path) ? (
@@ -711,10 +828,123 @@ function App() {
 
         {view === "security" && (
           <>
-            <h2>Security Audit</h2>
-            <p style={{ color: "var(--text-secondary)" }}>
-              Run cargo audit across all projects.
-            </p>
+            <div className="header-row">
+              <h2>Security Audit</h2>
+              {auditStats.projectsChecked > 0 && (
+                <span className="total-size">
+                  {auditStats.totalVulns} vulnerabilities, {auditStats.totalWarnings} warnings
+                </span>
+              )}
+            </div>
+
+            <div className="toolbar">
+              <button onClick={checkAllAudits} disabled={checkingAudit}>
+                {checkingAudit ? (
+                  <>
+                    <Spinner size={16} className="spinning" />
+                    Auditing...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={16} />
+                    Audit All Projects
+                  </>
+                )}
+              </button>
+              <span className="toolbar-note">
+                Requires: cargo install cargo-audit
+              </span>
+            </div>
+
+            {auditResults.length === 0 && !checkingAudit ? (
+              <div className="empty-state">
+                <p>Click "Audit All Projects" to scan for security vulnerabilities</p>
+              </div>
+            ) : (
+              <div className="deps-list">
+                {auditResults
+                  .filter((r) => r.success)
+                  .sort((a, b) => b.vulnerabilities.length - a.vulnerabilities.length)
+                  .map((result) => (
+                    <div key={result.project_path} className="deps-project">
+                      <div className="deps-project-header">
+                        <div className="deps-project-info">
+                          <span className="deps-project-name">
+                            {result.project_name}
+                          </span>
+                          <span className="deps-project-path">
+                            {result.project_path}
+                          </span>
+                        </div>
+                        <div className="deps-project-count">
+                          {result.vulnerabilities.length === 0 && result.warnings.length === 0 ? (
+                            <span className="deps-uptodate">
+                              <CheckCircle size={16} weight="fill" />
+                              Secure
+                            </span>
+                          ) : (
+                            <span className="deps-outdated-count">
+                              <Warning size={16} weight="fill" />
+                              {result.vulnerabilities.length} vulns, {result.warnings.length} warnings
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {result.vulnerabilities.length > 0 && (
+                        <div className="audit-section">
+                          <h4 className="audit-section-title" style={{ color: "var(--error)" }}>
+                            Vulnerabilities
+                          </h4>
+                          {result.vulnerabilities.map((vuln) => (
+                            <div key={vuln.id} className="audit-item vulnerability">
+                              <div className="audit-item-header">
+                                <span className="audit-id">{vuln.id}</span>
+                                <span className="audit-pkg">{vuln.package}@{vuln.version}</span>
+                              </div>
+                              <p className="audit-title">{vuln.title}</p>
+                              {vuln.url && (
+                                <a href={vuln.url} target="_blank" rel="noopener noreferrer" className="audit-link">
+                                  View Advisory
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {result.warnings.length > 0 && (
+                        <div className="audit-section">
+                          <h4 className="audit-section-title" style={{ color: "var(--warning)" }}>
+                            Warnings ({result.warnings.length})
+                          </h4>
+                          <div className="audit-warnings-summary">
+                            {result.warnings.slice(0, 5).map((warn) => (
+                              <span key={warn.advisory_id} className="audit-warning-badge" title={warn.title}>
+                                {warn.package} ({warn.kind})
+                              </span>
+                            ))}
+                            {result.warnings.length > 5 && (
+                              <span className="audit-warning-badge">+{result.warnings.length - 5} more</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                {auditResults.filter((r) => !r.success).length > 0 && (
+                  <div className="deps-errors">
+                    <h4>Errors</h4>
+                    {auditResults
+                      .filter((r) => !r.success)
+                      .map((result) => (
+                        <div key={result.project_path} className="deps-error-row">
+                          <span>{result.project_name}</span>
+                          <span className="error-text">{result.error}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -733,6 +963,160 @@ function App() {
             <p style={{ color: "var(--text-secondary)" }}>
               Analyze dependency usage across projects.
             </p>
+          </>
+        )}
+
+        {view === "project-detail" && selectedProject && (
+          <>
+            <div className="header-row">
+              <button
+                className="icon-btn back-btn"
+                onClick={() => setView("projects")}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <h2>{selectedProject.name}</h2>
+            </div>
+            <p className="detail-path">{selectedProject.path}</p>
+
+            <div className="command-grid">
+              <button
+                onClick={() => runCargoCommand("check", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "check" ? <Spinner size={16} className="spinning" /> : <Code size={16} />}
+                Check
+              </button>
+              <button
+                onClick={() => runCargoCommand("build", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "build" ? <Spinner size={16} className="spinning" /> : <Wrench size={16} />}
+                Build
+              </button>
+              <button
+                onClick={() => runCargoCommand("build", ["--release"])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "build" ? <Spinner size={16} className="spinning" /> : <Wrench size={16} />}
+                Build Release
+              </button>
+              <button
+                onClick={() => runCargoCommand("run", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "run" ? <Spinner size={16} className="spinning" /> : <Play size={16} />}
+                Run
+              </button>
+              <button
+                onClick={() => runCargoCommand("test", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "test" ? <Spinner size={16} className="spinning" /> : <Bug size={16} />}
+                Test
+              </button>
+              <button
+                onClick={() => runCargoCommand("fmt", ["--", "--check"])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "fmt" ? <Spinner size={16} className="spinning" /> : <FileCode size={16} />}
+                Fmt Check
+              </button>
+              <button
+                onClick={() => runCargoCommand("clippy", ["--", "-D", "warnings"])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "clippy" ? <Spinner size={16} className="spinning" /> : <Warning size={16} />}
+                Clippy
+              </button>
+              <button
+                onClick={() => runCargoCommand("doc", ["--no-deps"])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "doc" ? <Spinner size={16} className="spinning" /> : <FileCode size={16} />}
+                Doc
+              </button>
+              <button
+                onClick={() => runCargoCommand("update", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "update" ? <Spinner size={16} className="spinning" /> : <ArrowsClockwise size={16} />}
+                Update
+              </button>
+              <button
+                onClick={() => runCargoCommand("tree", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "tree" ? <Spinner size={16} className="spinning" /> : <Tree size={16} />}
+                Tree
+              </button>
+              <button
+                onClick={() => runCargoCommand("bench", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "bench" ? <Spinner size={16} className="spinning" /> : <Timer size={16} />}
+                Bench
+              </button>
+              <button
+                onClick={() => runCargoCommand("audit", [])}
+                disabled={runningCommand !== null}
+                className="command-btn"
+              >
+                {runningCommand === "audit" ? <Spinner size={16} className="spinning" /> : <ShieldCheck size={16} />}
+                Audit
+              </button>
+            </div>
+
+            {runningCommand && (
+              <div className="command-running">
+                <Spinner size={20} className="spinning" />
+                Running cargo {runningCommand}...
+              </div>
+            )}
+
+            {commandOutput && (
+              <div className="command-output">
+                <div className="command-output-header">
+                  <span className={`command-status ${commandOutput.success ? "success" : "error"}`}>
+                    {commandOutput.success ? (
+                      <><CheckCircle size={16} weight="fill" /> Success</>
+                    ) : (
+                      <><XCircle size={16} weight="fill" /> Failed (exit code: {commandOutput.exit_code})</>
+                    )}
+                  </span>
+                  <span className="command-name">cargo {commandOutput.command}</span>
+                </div>
+                <pre className="command-output-text">
+                  {commandOutput.stdout || commandOutput.stderr || "(no output)"}
+                </pre>
+              </div>
+            )}
+
+            <div className="project-stats">
+              <div className="stat-card">
+                <span className="stat-value">{formatBytes(selectedProject.target_size)}</span>
+                <span className="stat-label">Target Size</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{selectedProject.dep_count}</span>
+                <span className="stat-label">Dependencies</span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-value">{formatTimeAgo(selectedProject.last_modified)}</span>
+                <span className="stat-label">Last Modified</span>
+              </div>
+            </div>
           </>
         )}
 

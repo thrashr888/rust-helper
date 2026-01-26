@@ -641,3 +641,203 @@ button svg {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+/* Clickable cards */
+.project-card.clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.project-card.clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+/* Audit styles */
+.audit-section {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.audit-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.audit-item {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.audit-item.vulnerability {
+  border-left: 3px solid var(--error);
+}
+
+.audit-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.audit-id {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--error);
+  font-weight: 600;
+}
+
+.audit-pkg {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.audit-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.audit-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.audit-link:hover {
+  text-decoration: underline;
+}
+
+.audit-warnings-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-warning-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(234, 179, 8, 0.2);
+  color: var(--warning);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+/* Project detail view */
+.back-btn {
+  margin-right: 12px;
+}
+
+.detail-path {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  word-break: break-all;
+}
+
+.command-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.command-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.command-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.command-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.command-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.command-output {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.command-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.command-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.command-status.success {
+  color: var(--success);
+}
+
+.command-status.error {
+  color: var(--error);
+}
+
+.command-name {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.command-output-text {
+  padding: 16px;
+  margin: 0;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.project-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+}
