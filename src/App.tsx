@@ -909,13 +909,14 @@ function App() {
         // Use backend-provided output and duration (most reliable)
         const capturedOutput = event.payload.output || [];
         const durationMs = event.payload.duration_ms || 0;
+        const newEntryId = `${now}-${Math.random().toString(36).substr(2, 9)}`;
         setCommandHistory((prev) => {
           // Prevent duplicate entries from React StrictMode double-invocation
           if (prev.length > 0 && prev[0].command === event.payload.command && now - prev[0].timestamp < 500) {
             return prev;
           }
           const newEntry: CommandHistoryEntry = {
-            id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
+            id: newEntryId,
             timestamp: now,
             startTime: now - durationMs, // Calculate from backend duration
             durationMs,
@@ -931,6 +932,13 @@ function App() {
           );
           return [newEntry, ...collapsedPrev];
         });
+        // Persist streaming filter to the completed entry
+        if (streamingFilter) {
+          setLogSearchFilters((prev) => ({
+            ...prev,
+            [newEntryId]: streamingFilter,
+          }));
+        }
         // Clear streaming output for next command
         streamingOutputRef.current = [];
         setStreamingOutput([]);
@@ -3392,12 +3400,6 @@ function App() {
                             <span className="command-name">
                               cargo {runningCommand}
                             </span>
-                            <span className="command-meta">
-                              {streamingFilter
-                                ? `${streamingOutput.filter((line) => line.toLowerCase().includes(streamingFilter.toLowerCase())).length}/${streamingOutput.length} lines`
-                                : `${streamingOutput.length} lines`}{" "}
-                              • {formatDuration(streamingElapsed)}
-                            </span>
                             <span className="log-search-wrapper">
                               <MagnifyingGlass size={12} />
                               <input
@@ -3412,6 +3414,12 @@ function App() {
                                 autoComplete="off"
                                 spellCheck={false}
                               />
+                            </span>
+                            <span className="command-meta">
+                              {streamingFilter
+                                ? `${streamingOutput.filter((line) => line.toLowerCase().includes(streamingFilter.toLowerCase())).length}/${streamingOutput.length} lines`
+                                : `${streamingOutput.length} lines`}{" "}
+                              • {formatDuration(streamingElapsed)}
                             </span>
                           </div>
                           <pre
