@@ -3603,73 +3603,170 @@ function App() {
                   </button>
                 </div>
 
-                {/* Test Output Section */}
+                {/* Test/Bench/Coverage Output - reuses command log viewer */}
                 {(() => {
-                  const testEntry = commandHistory.find(
-                    (e) =>
-                      e.command === "test" ||
-                      e.command === "bench" ||
-                      e.command === "tarpaulin",
+                  const testCommands = ["test", "bench", "tarpaulin"];
+                  const testHistory = commandHistory.filter((e) =>
+                    testCommands.some((cmd) => e.command.startsWith(cmd)),
                   );
-                  const showTestOutput =
-                    testEntry ||
-                    (isStreaming &&
-                      (runningCommand === "test" ||
-                        runningCommand === "bench" ||
-                        runningCommand === "tarpaulin"));
-                  if (!showTestOutput) return null;
-                  const currentCommand = testEntry?.command || runningCommand;
+                  const isTestStreaming =
+                    isStreaming && testCommands.includes(runningCommand || "");
+                  if (!isTestStreaming && testHistory.length === 0) return null;
+
                   return (
-                    <div className="test-results">
-                      <div className="test-results-header">
-                        <h4>
-                          {currentCommand === "test"
-                            ? "Test Results"
-                            : currentCommand === "tarpaulin"
-                              ? "Coverage Output"
-                              : "Benchmark Results"}
-                        </h4>
-                        {testEntry && !isStreaming ? (
-                          <span
-                            className={`test-status-badge ${testEntry.success ? "passed" : "failed"}`}
-                          >
-                            {testEntry.success ? (
-                              <>
-                                <CheckCircle size={14} /> Passed
-                              </>
-                            ) : (
-                              <>
-                                <XCircle size={14} /> Failed
-                              </>
-                            )}
-                          </span>
-                        ) : (
-                          <span className="test-status-badge running">
-                            <Spinner size={14} className="spinning" />{" "}
-                            Running...
-                          </span>
-                        )}
-                      </div>
-                      <pre
-                        className="test-output"
-                        ref={outputRef}
-                        dangerouslySetInnerHTML={{
-                          __html:
-                            isStreaming && streamingOutput.length > 0
-                              ? streamingOutput
-                                  .map((line) =>
-                                    ansiConverter.current.toHtml(line),
-                                  )
-                                  .join("\n")
-                              : testEntry
-                                ? testEntry.output
-                                    .map((line) =>
-                                      ansiConverter.current.toHtml(line),
+                    <div className="command-history">
+                      {isTestStreaming && (
+                        <div className="command-output streaming-command">
+                          <div className="command-output-header">
+                            <span className="command-status running">
+                              <Spinner size={16} className="spinning" /> Running
+                            </span>
+                            <span className="command-name">
+                              cargo {runningCommand}
+                            </span>
+                            <span className="log-search-wrapper">
+                              <MagnifyingGlass size={12} />
+                              <input
+                                type="text"
+                                className="log-search-input"
+                                placeholder="Filter..."
+                                value={streamingFilter}
+                                onChange={(e) =>
+                                  setStreamingFilter(e.target.value)
+                                }
+                                autoCorrect="off"
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                            </span>
+                            <span className="command-meta">
+                              {streamingFilter
+                                ? `${streamingOutput.filter((line) => line.toLowerCase().includes(streamingFilter.toLowerCase())).length}/${streamingOutput.length} lines`
+                                : `${streamingOutput.length} lines`}{" "}
+                              • {formatDuration(streamingElapsed)}
+                            </span>
+                          </div>
+                          <pre
+                            ref={outputRef}
+                            className="command-output-text streaming"
+                            dangerouslySetInnerHTML={{
+                              __html: DOMPurify.sanitize(
+                                (streamingFilter
+                                  ? streamingOutput.filter((line) =>
+                                      line
+                                        .toLowerCase()
+                                        .includes(streamingFilter.toLowerCase()),
                                     )
-                                    .join("\n") || "(no output)"
-                                : "",
-                        }}
-                      />
+                                  : streamingOutput
+                                )
+                                  .map((line) => ansiConverter.current.toHtml(line))
+                                  .join("\n") || "(waiting for output...)",
+                              ),
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {testHistory.map((entry) => {
+                        const entryFilter = logSearchFilters[entry.id] || "";
+                        const filteredOutput = entryFilter
+                          ? entry.output.filter((line) =>
+                              line
+                                .toLowerCase()
+                                .includes(entryFilter.toLowerCase()),
+                            )
+                          : entry.output;
+                        return (
+                          <div
+                            key={entry.id}
+                            className={`command-output ${entry.isCollapsed ? "collapsed" : ""}`}
+                          >
+                            <div
+                              className="command-output-header clickable"
+                              onClick={() =>
+                                toggleCommandHistoryCollapse(entry.id)
+                              }
+                            >
+                              <span
+                                className={`command-status ${entry.success ? "success" : "error"}`}
+                              >
+                                {entry.success ? (
+                                  <>
+                                    <CheckCircle size={16} weight="fill" />{" "}
+                                    Success
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle size={16} weight="fill" /> Failed
+                                    (exit code: {entry.exitCode})
+                                  </>
+                                )}
+                              </span>
+                              <span className="command-name">
+                                cargo {entry.command}
+                              </span>
+                              <div
+                                className="log-search-wrapper"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MagnifyingGlass size={12} />
+                                <input
+                                  type="text"
+                                  className="log-search-input"
+                                  placeholder="Filter..."
+                                  value={entryFilter}
+                                  onChange={(e) =>
+                                    setLogSearchFilters((prev) => ({
+                                      ...prev,
+                                      [entry.id]: e.target.value,
+                                    }))
+                                  }
+                                  autoCorrect="off"
+                                  autoCapitalize="off"
+                                  spellCheck={false}
+                                />
+                              </div>
+                              <span className="command-meta">
+                                {entryFilter &&
+                                filteredOutput.length !== entry.output.length
+                                  ? `${filteredOutput.length}/${entry.output.length}`
+                                  : entry.output?.length || 0}{" "}
+                                lines • {formatDuration(entry.durationMs)}
+                              </span>
+                              <span className="command-time">
+                                {formatTimeAgo(
+                                  Math.floor(entry.timestamp / 1000),
+                                )}
+                              </span>
+                              <span className="collapse-indicator">
+                                {entry.isCollapsed ? (
+                                  <CaretDown size={14} />
+                                ) : (
+                                  <CaretDown size={14} className="rotated" />
+                                )}
+                              </span>
+                            </div>
+                            {!entry.isCollapsed && (
+                              <pre
+                                className="command-output-text"
+                                dangerouslySetInnerHTML={{
+                                  __html: DOMPurify.sanitize(
+                                    filteredOutput.length > 0
+                                      ? filteredOutput
+                                          .map((line) =>
+                                            ansiConverter.current.toHtml(line),
+                                          )
+                                          .join("\n")
+                                      : entryFilter
+                                        ? "(no matching lines)"
+                                        : "(no output)",
+                                  ),
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })()}
