@@ -117,6 +117,8 @@ interface CargoCommandResult {
 interface CommandHistoryEntry {
   id: string;
   timestamp: number;
+  startTime: number;
+  durationMs: number;
   command: string;
   success: boolean;
   exitCode: number | null;
@@ -426,6 +428,15 @@ function formatTimeAgo(timestamp: number): string {
   return `${Math.floor(diff / 2592000)}mo ago`;
 }
 
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || ms === null || isNaN(ms)) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = ((ms % 60000) / 1000).toFixed(0);
+  return `${minutes}m ${seconds}s`;
+}
+
 function App() {
   const [view, setView] = useState<View>("projects");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -459,6 +470,7 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const ansiConverter = useRef(new AnsiToHtml({ fg: "#d4d4d4", bg: "#1e1e1e" }));
   const outputRef = useRef<HTMLPreElement>(null);
+  const streamingOutputRef = useRef<string[]>([]);
 
   // Per-project analysis state
   const [projectOutdated, setProjectOutdated] = useState<OutdatedResult | null>(null);
@@ -559,6 +571,12 @@ function App() {
       prev.map((entry) =>
         entry.id === id ? { ...entry, isCollapsed: !entry.isCollapsed } : entry
       )
+    );
+  };
+
+  const toggleAllCommandHistory = (collapse: boolean) => {
+    setCommandHistory((prev) =>
+      prev.map((entry) => ({ ...entry, isCollapsed: collapse }))
     );
   };
 
@@ -842,7 +860,9 @@ function App() {
       unlistenOutput = await listen<{ line: string; stream: string }>(
         "cargo-output",
         (event) => {
-          setStreamingOutput((prev) => [...prev, event.payload.line]);
+          // Update streaming output for live display
+          streamingOutputRef.current = [...streamingOutputRef.current, event.payload.line];
+          setStreamingOutput(streamingOutputRef.current);
           // Auto-scroll to bottom
           if (outputRef.current) {
             outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -855,26 +875,44 @@ function App() {
         command: string;
         success: boolean;
         exit_code: number | null;
+        output: string[];
+        duration_ms: number;
       }>("cargo-complete", async (event) => {
         setIsStreaming(false);
         setRunningCommand(null);
         setRunningCoverage(false);
         // Remove any pending cargo jobs
         setJobs((prev) => prev.filter((job) => !job.id.startsWith("cargo-")));
-        // Add completed command to history
-        setStreamingOutput((currentOutput) => {
+        // Add completed command to history (with deduplication guard)
+        const now = Date.now();
+        // Use backend-provided output and duration (most reliable)
+        const capturedOutput = event.payload.output || [];
+        const durationMs = event.payload.duration_ms || 0;
+        setCommandHistory((prev) => {
+          // Prevent duplicate entries from React StrictMode double-invocation
+          if (prev.length > 0 && prev[0].command === event.payload.command && now - prev[0].timestamp < 500) {
+            return prev;
+          }
           const newEntry: CommandHistoryEntry = {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: Date.now(),
+            id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: now,
+            startTime: now - durationMs, // Calculate from backend duration
+            durationMs,
             command: event.payload.command,
             success: event.payload.success,
             exitCode: event.payload.exit_code,
-            output: [...currentOutput],
-            isCollapsed: false,
+            output: capturedOutput,
+            isCollapsed: false, // New entry always expanded
           };
-          setCommandHistory((prev) => [newEntry, ...prev]);
-          return []; // Clear streaming output for next command
+          // Collapse previous entries (most recent becomes second, should be collapsed)
+          const collapsedPrev = prev.map((entry, index) =>
+            index === 0 ? { ...entry, isCollapsed: true } : entry
+          );
+          return [newEntry, ...collapsedPrev];
         });
+        // Clear streaming output for next command
+        streamingOutputRef.current = [];
+        setStreamingOutput([]);
 
         // Handle tarpaulin coverage results
         if (event.payload.command === "tarpaulin" && event.payload.success) {
@@ -1274,6 +1312,7 @@ function App() {
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
     setRunningCommand(command);
+    streamingOutputRef.current = [];
     setStreamingOutput([]);
     setIsStreaming(true);
     const jobId = `cargo-${command}-${Date.now()}`;
@@ -1298,6 +1337,7 @@ function App() {
     if (!selectedProject) return;
     setUpgradingPackage(packageName);
     const jobId = `cargo-upgrade-${packageName}-${Date.now()}`;
+    const startTime = Date.now();
     addJob(jobId, `cargo upgrade --package ${packageName}...`);
     try {
       const result = await invoke<CargoCommandResult>("run_cargo_command", {
@@ -1306,9 +1346,12 @@ function App() {
         args: ["--package", packageName],
       });
       // Add result to command history
+      const now = Date.now();
       const newEntry: CommandHistoryEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        timestamp: Date.now(),
+        id: `${now}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: now,
+        startTime,
+        durationMs: now - startTime,
         command: `upgrade --package ${packageName}`,
         success: result.success,
         exitCode: result.exit_code,
@@ -1316,9 +1359,15 @@ function App() {
           .split("\n")
           .concat(result.stderr.split("\n"))
           .filter((line) => line.trim()),
-        isCollapsed: false,
+        isCollapsed: false, // New entry always expanded
       };
-      setCommandHistory((prev) => [newEntry, ...prev]);
+      setCommandHistory((prev) => {
+        // Collapse previous first entry
+        const collapsedPrev = prev.map((entry, index) =>
+          index === 0 ? { ...entry, isCollapsed: true } : entry
+        );
+        return [newEntry, ...collapsedPrev];
+      });
     } catch (e) {
       console.error("Failed to upgrade package:", e);
     }
@@ -3018,6 +3067,7 @@ function App() {
                           onClick={() => runCargoCommand("check", ["--quiet"])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Quickly check code for errors without producing binaries"
                         >
                           {runningCommand === "check" ? (
                             <Spinner size={16} className="spinning" />
@@ -3030,6 +3080,7 @@ function App() {
                           onClick={() => runCargoCommand("build", ["--quiet"])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Compile the project in debug mode"
                         >
                           {runningCommand === "build" ? (
                             <Spinner size={16} className="spinning" />
@@ -3044,6 +3095,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Compile with optimizations for release"
                         >
                           {runningCommand === "build" ? (
                             <Spinner size={16} className="spinning" />
@@ -3056,6 +3108,7 @@ function App() {
                           onClick={() => runCargoCommand("run", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Build and run the project"
                         >
                           {runningCommand === "run" ? (
                             <Spinner size={16} className="spinning" />
@@ -3076,6 +3129,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Check if code is formatted correctly without making changes"
                         >
                           {runningCommand === "fmt" ? (
                             <Spinner size={16} className="spinning" />
@@ -3088,6 +3142,7 @@ function App() {
                           onClick={() => runCargoCommand("fmt", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Format code according to Rust style guidelines"
                         >
                           {runningCommand === "fmt" ? (
                             <Spinner size={16} className="spinning" />
@@ -3102,6 +3157,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Run the Clippy linter to catch common mistakes and improve code"
                         >
                           {runningCommand === "clippy" ? (
                             <Spinner size={16} className="spinning" />
@@ -3121,6 +3177,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Automatically fix Clippy warnings in your code"
                         >
                           {runningCommand === "clippy" ? (
                             <Spinner size={16} className="spinning" />
@@ -3141,6 +3198,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Generate documentation for this project"
                         >
                           {runningCommand === "doc" ? (
                             <Spinner size={16} className="spinning" />
@@ -3155,6 +3213,7 @@ function App() {
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Display the dependency tree for this project"
                         >
                           {runningCommand === "tree" ? (
                             <Spinner size={16} className="spinning" />
@@ -3173,6 +3232,7 @@ function App() {
                           onClick={() => runCargoCommand("update", ["--quiet"])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Update Cargo.lock to latest compatible dependency versions"
                         >
                           {runningCommand === "update" ? (
                             <Spinner size={16} className="spinning" />
@@ -3185,6 +3245,7 @@ function App() {
                           onClick={() => runCargoCommand("audit", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
+                          title="Check dependencies for known security vulnerabilities"
                         >
                           {runningCommand === "audit" ? (
                             <Spinner size={16} className="spinning" />
@@ -3233,6 +3294,29 @@ function App() {
                       </div>
                     </div>
                   )}
+
+                  {commandHistory.length > 1 && (
+                    <div className="history-controls">
+                      <button
+                        className="command-btn small"
+                        onClick={() => {
+                          const allCollapsed = commandHistory.every((e) => e.isCollapsed);
+                          toggleAllCommandHistory(!allCollapsed);
+                        }}
+                        title={commandHistory.every((e) => e.isCollapsed) ? "Expand all command logs" : "Collapse all command logs"}
+                      >
+                        {commandHistory.every((e) => e.isCollapsed) ? (
+                          <>
+                            <CaretDown size={14} className="rotated" /> Expand All
+                          </>
+                        ) : (
+                          <>
+                            <CaretDown size={14} /> Collapse All
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="output-panel">
@@ -3244,7 +3328,7 @@ function App() {
                   )}
 
                   {isStreaming && (
-                    <div className="command-output">
+                    <div className="command-output streaming-command">
                       <div className="command-output-header">
                         <span className="command-status running">
                           <Spinner size={16} className="spinning" /> Running
@@ -3267,7 +3351,7 @@ function App() {
                     </div>
                   )}
 
-                  {commandHistory.length > 0 && !isStreaming && (
+                  {commandHistory.length > 0 && (
                     <div className="command-history">
                       {commandHistory.map((entry) => (
                         <div
@@ -3294,6 +3378,9 @@ function App() {
                             </span>
                             <span className="command-name">
                               cargo {entry.command}
+                            </span>
+                            <span className="command-meta">
+                              {entry.output?.length || 0} lines • {formatDuration(entry.durationMs)}
                             </span>
                             <span className="command-time">
                               {formatTimeAgo(Math.floor(entry.timestamp / 1000))}

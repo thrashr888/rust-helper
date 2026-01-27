@@ -877,6 +877,8 @@ pub struct CommandCompleteEvent {
     pub command: String,
     pub success: bool,
     pub exit_code: Option<i32>,
+    pub output: Vec<String>,
+    pub duration_ms: u64,
 }
 
 #[tauri::command]
@@ -890,6 +892,9 @@ pub async fn run_cargo_command_streaming(
     let path_clone = project_path.clone();
 
     tokio::task::spawn(async move {
+        let start_time = std::time::Instant::now();
+        let output_lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+
         let mut child = match Command::new("cargo")
             .arg(&command)
             .args(&args)
@@ -900,10 +905,11 @@ pub async fn run_cargo_command_streaming(
         {
             Ok(child) => child,
             Err(e) => {
+                let error_line = format!("Failed to start command: {}", e);
                 let _ = app.emit(
                     "cargo-output",
                     CommandOutputEvent {
-                        line: format!("Failed to start command: {}", e),
+                        line: error_line.clone(),
                         stream: "stderr".to_string(),
                     },
                 );
@@ -914,6 +920,8 @@ pub async fn run_cargo_command_streaming(
                         command,
                         success: false,
                         exit_code: None,
+                        output: vec![error_line],
+                        duration_ms: start_time.elapsed().as_millis() as u64,
                     },
                 );
                 return;
@@ -923,10 +931,15 @@ pub async fn run_cargo_command_streaming(
         // Read stdout in a separate thread
         let stdout = child.stdout.take();
         let app_stdout = app.clone();
+        let output_stdout = output_lines.clone();
         let stdout_handle = std::thread::spawn(move || {
             if let Some(stdout) = stdout {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines().map_while(Result::ok) {
+                    // Store for later
+                    if let Ok(mut lines) = output_stdout.lock() {
+                        lines.push(line.clone());
+                    }
                     let _ = app_stdout.emit(
                         "cargo-output",
                         CommandOutputEvent {
@@ -941,10 +954,15 @@ pub async fn run_cargo_command_streaming(
         // Read stderr in a separate thread
         let stderr = child.stderr.take();
         let app_stderr = app.clone();
+        let output_stderr = output_lines.clone();
         let stderr_handle = std::thread::spawn(move || {
             if let Some(stderr) = stderr {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines().map_while(Result::ok) {
+                    // Store for later
+                    if let Ok(mut lines) = output_stderr.lock() {
+                        lines.push(line.clone());
+                    }
                     let _ = app_stderr.emit(
                         "cargo-output",
                         CommandOutputEvent {
@@ -966,6 +984,10 @@ pub async fn run_cargo_command_streaming(
             Err(_) => (false, None),
         };
 
+        // Extract collected output
+        let final_output = output_lines.lock().map(|l| l.clone()).unwrap_or_default();
+        let duration_ms = start_time.elapsed().as_millis() as u64;
+
         let _ = app.emit(
             "cargo-complete",
             CommandCompleteEvent {
@@ -973,6 +995,8 @@ pub async fn run_cargo_command_streaming(
                 command,
                 success,
                 exit_code,
+                output: final_output,
+                duration_ms,
             },
         );
     });

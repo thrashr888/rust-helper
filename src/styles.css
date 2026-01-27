@@ -2681,12 +2681,22 @@ button svg {
   margin-top: 16px;
 }
 
+.command-history .command-output {
+  min-height: auto;
+  flex: none;
+  margin-bottom: 0;
+}
+
 .command-output.collapsed {
   border-color: var(--border);
 }
 
 .command-output.collapsed .command-output-header {
   border-bottom: none;
+}
+
+.command-output.collapsed .command-output-text {
+  display: none;
 }
 
 .command-output-header.clickable {
@@ -2699,10 +2709,20 @@ button svg {
   background: var(--bg-secondary);
 }
 
-.command-time {
+.command-output-header .command-status {
+  margin-right: 12px;
+}
+
+.command-meta {
   font-size: 11px;
   color: var(--text-secondary);
   margin-left: auto;
+}
+
+.command-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 12px;
   margin-right: 8px;
 }
 
@@ -2715,5 +2735,24 @@ button svg {
 
 .collapse-indicator .rotated,
 .collapse-indicator svg.rotated {
+  transform: rotate(180deg);
+}
+
+.history-controls {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.history-controls .command-btn {
+  font-size: 11px;
+  padding: 6px 10px;
+}
+
+.history-controls .command-btn svg {
+  margin-right: 4px;
+}
+
+.history-controls .command-btn svg.rotated {
   transform: rotate(180deg);
 }
