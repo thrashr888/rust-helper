@@ -114,6 +114,16 @@ interface CargoCommandResult {
   exit_code: number | null;
 }
 
+interface CommandHistoryEntry {
+  id: string;
+  timestamp: number;
+  command: string;
+  success: boolean;
+  exitCode: number | null;
+  output: string[];
+  isCollapsed: boolean;
+}
+
 interface VersionUsage {
   version: string;
   projects: string[];
@@ -442,7 +452,7 @@ function App() {
 
   // Project detail state
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [commandOutput, setCommandOutput] = useState<CargoCommandResult | null>(null);
+  const [commandHistory, setCommandHistory] = useState<CommandHistoryEntry[]>([]);
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
   const [projectDetailTab, setProjectDetailTab] = useState<ProjectDetailTab>("commands");
   const [streamingOutput, setStreamingOutput] = useState<string[]>([]);
@@ -542,6 +552,14 @@ function App() {
 
   const removeJob = (id: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== id));
+  };
+
+  const toggleCommandHistoryCollapse = (id: string) => {
+    setCommandHistory((prev) =>
+      prev.map((entry) =>
+        entry.id === id ? { ...entry, isCollapsed: !entry.isCollapsed } : entry
+      )
+    );
   };
 
   const loadConfig = async () => {
@@ -843,14 +861,19 @@ function App() {
         setRunningCoverage(false);
         // Remove any pending cargo jobs
         setJobs((prev) => prev.filter((job) => !job.id.startsWith("cargo-")));
-        // Convert streaming output to command result
-        setCommandOutput({
-          project_path: event.payload.project_path,
-          command: event.payload.command,
-          success: event.payload.success,
-          stdout: "", // Output is in streamingOutput
-          stderr: "",
-          exit_code: event.payload.exit_code,
+        // Add completed command to history
+        setStreamingOutput((currentOutput) => {
+          const newEntry: CommandHistoryEntry = {
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: Date.now(),
+            command: event.payload.command,
+            success: event.payload.success,
+            exitCode: event.payload.exit_code,
+            output: [...currentOutput],
+            isCollapsed: false,
+          };
+          setCommandHistory((prev) => [newEntry, ...prev]);
+          return []; // Clear streaming output for next command
         });
 
         // Handle tarpaulin coverage results
@@ -940,7 +963,7 @@ function App() {
 
   const openProjectDetail = async (project: Project) => {
     setSelectedProject(project);
-    setCommandOutput(null);
+    setCommandHistory([]);
     setProjectDetailTab("commands");
     setProjectOutdated(null);
     setProjectAudit(null);
@@ -1251,7 +1274,6 @@ function App() {
   const runCargoCommand = async (command: string, args: string[] = []) => {
     if (!selectedProject) return;
     setRunningCommand(command);
-    setCommandOutput(null);
     setStreamingOutput([]);
     setIsStreaming(true);
     const jobId = `cargo-${command}-${Date.now()}`;
@@ -1275,7 +1297,6 @@ function App() {
   const upgradePackage = async (packageName: string) => {
     if (!selectedProject) return;
     setUpgradingPackage(packageName);
-    setCommandOutput(null);
     const jobId = `cargo-upgrade-${packageName}-${Date.now()}`;
     addJob(jobId, `cargo upgrade --package ${packageName}...`);
     try {
@@ -1284,7 +1305,20 @@ function App() {
         command: "upgrade",
         args: ["--package", packageName],
       });
-      setCommandOutput(result);
+      // Add result to command history
+      const newEntry: CommandHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        command: `upgrade --package ${packageName}`,
+        success: result.success,
+        exitCode: result.exit_code,
+        output: result.stdout
+          .split("\n")
+          .concat(result.stderr.split("\n"))
+          .filter((line) => line.trim()),
+        isCollapsed: false,
+      };
+      setCommandHistory((prev) => [newEntry, ...prev]);
     } catch (e) {
       console.error("Failed to upgrade package:", e);
     }
@@ -3233,45 +3267,59 @@ function App() {
                     </div>
                   )}
 
-                  {commandOutput && !isStreaming && (
-                    <div className="command-output">
-                      <div className="command-output-header">
-                        <span
-                          className={`command-status ${commandOutput.success ? "success" : "error"}`}
+                  {commandHistory.length > 0 && !isStreaming && (
+                    <div className="command-history">
+                      {commandHistory.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className={`command-output ${entry.isCollapsed ? "collapsed" : ""}`}
                         >
-                          {commandOutput.success ? (
-                            <>
-                              <CheckCircle size={16} weight="fill" /> Success
-                            </>
-                          ) : (
-                            <>
-                              <XCircle size={16} weight="fill" /> Failed (exit
-                              code: {commandOutput.exit_code})
-                            </>
-                          )}
-                        </span>
-                        <span className="command-name">
-                          cargo {commandOutput.command}
-                        </span>
-                      </div>
-                      <pre
-                        className="command-output-text"
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(
-                            streamingOutput.length > 0
-                              ? streamingOutput
-                                  .map((line) =>
-                                    ansiConverter.current.toHtml(line),
-                                  )
-                                  .join("\n")
-                              : ansiConverter.current.toHtml(
-                                  commandOutput.stdout ||
-                                    commandOutput.stderr ||
-                                    "(no output)",
+                          <div
+                            className="command-output-header clickable"
+                            onClick={() => toggleCommandHistoryCollapse(entry.id)}
+                          >
+                            <span
+                              className={`command-status ${entry.success ? "success" : "error"}`}
+                            >
+                              {entry.success ? (
+                                <>
+                                  <CheckCircle size={16} weight="fill" /> Success
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle size={16} weight="fill" /> Failed (exit
+                                  code: {entry.exitCode})
+                                </>
+                              )}
+                            </span>
+                            <span className="command-name">
+                              cargo {entry.command}
+                            </span>
+                            <span className="command-time">
+                              {formatTimeAgo(Math.floor(entry.timestamp / 1000))}
+                            </span>
+                            <span className="collapse-indicator">
+                              {entry.isCollapsed ? <CaretDown size={14} /> : <CaretDown size={14} className="rotated" />}
+                            </span>
+                          </div>
+                          {!entry.isCollapsed && (
+                            <pre
+                              className="command-output-text"
+                              dangerouslySetInnerHTML={{
+                                __html: DOMPurify.sanitize(
+                                  entry.output.length > 0
+                                    ? entry.output
+                                        .map((line) =>
+                                          ansiConverter.current.toHtml(line),
+                                        )
+                                        .join("\n")
+                                    : "(no output)",
                                 ),
-                          ),
-                        }}
-                      />
+                              }}
+                            />
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -3333,66 +3381,66 @@ function App() {
                 </div>
 
                 {/* Test Output Section */}
-                {(commandOutput &&
-                  (commandOutput.command === "test" ||
-                    commandOutput.command === "bench" ||
-                    commandOutput.command === "tarpaulin")) ||
-                (isStreaming &&
-                  (runningCommand === "test" ||
-                    runningCommand === "bench" ||
-                    runningCommand === "tarpaulin")) ? (
-                  <div className="test-results">
-                    <div className="test-results-header">
-                      <h4>
-                        {(commandOutput?.command || runningCommand) === "test"
-                          ? "Test Results"
-                          : (commandOutput?.command || runningCommand) ===
-                              "tarpaulin"
-                            ? "Coverage Output"
-                            : "Benchmark Results"}
-                      </h4>
-                      {commandOutput && !isStreaming ? (
-                        <span
-                          className={`test-status-badge ${commandOutput.success ? "passed" : "failed"}`}
-                        >
-                          {commandOutput.success ? (
-                            <>
-                              <CheckCircle size={14} /> Passed
-                            </>
-                          ) : (
-                            <>
-                              <XCircle size={14} /> Failed
-                            </>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="test-status-badge running">
-                          <Spinner size={14} className="spinning" /> Running...
-                        </span>
-                      )}
+                {(() => {
+                  const testEntry = commandHistory.find(
+                    (e) => e.command === "test" || e.command === "bench" || e.command === "tarpaulin"
+                  );
+                  const showTestOutput = testEntry || (isStreaming && (runningCommand === "test" || runningCommand === "bench" || runningCommand === "tarpaulin"));
+                  if (!showTestOutput) return null;
+                  const currentCommand = testEntry?.command || runningCommand;
+                  return (
+                    <div className="test-results">
+                      <div className="test-results-header">
+                        <h4>
+                          {currentCommand === "test"
+                            ? "Test Results"
+                            : currentCommand === "tarpaulin"
+                              ? "Coverage Output"
+                              : "Benchmark Results"}
+                        </h4>
+                        {testEntry && !isStreaming ? (
+                          <span
+                            className={`test-status-badge ${testEntry.success ? "passed" : "failed"}`}
+                          >
+                            {testEntry.success ? (
+                              <>
+                                <CheckCircle size={14} /> Passed
+                              </>
+                            ) : (
+                              <>
+                                <XCircle size={14} /> Failed
+                              </>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="test-status-badge running">
+                            <Spinner size={14} className="spinning" /> Running...
+                          </span>
+                        )}
+                      </div>
+                      <pre
+                        className="test-output"
+                        ref={outputRef}
+                        dangerouslySetInnerHTML={{
+                          __html:
+                            isStreaming && streamingOutput.length > 0
+                              ? streamingOutput
+                                  .map((line) =>
+                                    ansiConverter.current.toHtml(line),
+                                  )
+                                  .join("\n")
+                              : testEntry
+                                ? testEntry.output
+                                    .map((line) =>
+                                      ansiConverter.current.toHtml(line),
+                                    )
+                                    .join("\n") || "(no output)"
+                                : "",
+                        }}
+                      />
                     </div>
-                    <pre
-                      className="test-output"
-                      ref={outputRef}
-                      dangerouslySetInnerHTML={{
-                        __html:
-                          streamingOutput.length > 0
-                            ? streamingOutput
-                                .map((line) =>
-                                  ansiConverter.current.toHtml(line),
-                                )
-                                .join("\n")
-                            : commandOutput
-                              ? ansiConverter.current.toHtml(
-                                  commandOutput.stdout ||
-                                    commandOutput.stderr ||
-                                    "(no output)",
-                                )
-                              : "",
-                      }}
-                    />
-                  </div>
-                ) : null}
+                  );
+                })()}
 
                 {/* Coverage Section */}
                 {coverageError && (
@@ -3682,18 +3730,21 @@ function App() {
                     )}
                   </button>
                 </div>
-                {commandOutput &&
-                  (commandOutput.command === "upgrade" ||
-                    commandOutput.command.startsWith("upgrade ")) && (
+                {(() => {
+                  const upgradeEntry = commandHistory.find(
+                    (e) => e.command === "upgrade" || e.command.startsWith("upgrade ")
+                  );
+                  if (!upgradeEntry) return null;
+                  return (
                     <div
                       className="command-output"
                       style={{ marginBottom: 16 }}
                     >
                       <div className="command-output-header">
                         <span
-                          className={`command-status ${commandOutput.success ? "success" : "error"}`}
+                          className={`command-status ${upgradeEntry.success ? "success" : "error"}`}
                         >
-                          {commandOutput.success ? (
+                          {upgradeEntry.success ? (
                             <>
                               <CheckCircle size={16} weight="fill" /> Upgraded
                             </>
@@ -3704,23 +3755,22 @@ function App() {
                           )}
                         </span>
                         <span className="command-name">
-                          cargo {commandOutput.command}
+                          cargo {upgradeEntry.command}
                         </span>
                       </div>
                       <pre
                         className="command-output-text"
                         dangerouslySetInnerHTML={{
                           __html: DOMPurify.sanitize(
-                            ansiConverter.current.toHtml(
-                              commandOutput.stdout ||
-                                commandOutput.stderr ||
-                                "(no output)",
-                            ),
+                            upgradeEntry.output
+                              .map((line) => ansiConverter.current.toHtml(line))
+                              .join("\n") || "(no output)",
                           ),
                         }}
                       />
                     </div>
-                  )}
+                  );
+                })()}
                 {projectOutdated ? (
                   projectOutdated.success ? (
                     projectOutdated.dependencies.length === 0 ? (

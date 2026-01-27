@@ -2672,3 +2672,48 @@ button svg {
   background: var(--border);
   margin-top: 16px;
 }
+
+/* Command History */
+.command-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.command-output.collapsed {
+  border-color: var(--border);
+}
+
+.command-output.collapsed .command-output-header {
+  border-bottom: none;
+}
+
+.command-output-header.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.command-output-header.clickable:hover {
+  background: var(--bg-secondary);
+}
+
+.command-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.collapse-indicator {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.collapse-indicator .rotated,
+.collapse-indicator svg.rotated {
+  transform: rotate(180deg);
+}
