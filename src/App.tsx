@@ -464,10 +464,14 @@ function App() {
   // Project detail state
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [commandHistory, setCommandHistory] = useState<CommandHistoryEntry[]>([]);
+  const [logSearchFilters, setLogSearchFilters] = useState<Record<string, string>>({});
+  const [streamingFilter, setStreamingFilter] = useState("");
   const [runningCommand, setRunningCommand] = useState<string | null>(null);
   const [projectDetailTab, setProjectDetailTab] = useState<ProjectDetailTab>("commands");
   const [streamingOutput, setStreamingOutput] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingStartTime, setStreamingStartTime] = useState<number | null>(null);
+  const [streamingElapsed, setStreamingElapsed] = useState(0);
   const ansiConverter = useRef(new AnsiToHtml({ fg: "#d4d4d4", bg: "#1e1e1e" }));
   const outputRef = useRef<HTMLPreElement>(null);
   const streamingOutputRef = useRef<string[]>([]);
@@ -851,6 +855,18 @@ function App() {
     }
   }, [installQueue.length, isProcessingQueue, installingTools.size]);
 
+  // Update elapsed time while streaming
+  useEffect(() => {
+    if (!isStreaming || !streamingStartTime) {
+      setStreamingElapsed(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setStreamingElapsed(Date.now() - streamingStartTime);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isStreaming, streamingStartTime]);
+
   // Listen for streaming command output
   useEffect(() => {
     let unlistenOutput: UnlistenFn | null = null;
@@ -883,6 +899,7 @@ function App() {
         duration_ms: number;
       }>("cargo-complete", async (event) => {
         setIsStreaming(false);
+        setStreamingStartTime(null);
         setRunningCommand(null);
         setRunningCoverage(false);
         // Remove any pending cargo jobs
@@ -1318,7 +1335,9 @@ function App() {
     setRunningCommand(command);
     streamingOutputRef.current = [];
     setStreamingOutput([]);
+    setStreamingFilter("");
     setIsStreaming(true);
+    setStreamingStartTime(Date.now());
     const jobId = `cargo-${command}-${Date.now()}`;
     addJob(jobId, `cargo ${command}...`);
 
@@ -1918,13 +1937,38 @@ function App() {
                                 });
                               }
                             }}
-                            title={`Open in ${installedIdes.find(i => i.command === preferredIde)?.name || "IDE"}`}
+                            title={`Open in ${installedIdes.find((i) => i.command === preferredIde)?.name || "IDE"}`}
                             disabled={!preferredIde}
                           >
                             <Code size={16} />
                           </button>
                         </div>
-                        <div className="search-result-code">{result.context_before.map((ctx) => (<pre key={`before-${ctx.line_number}`} className="search-context-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${ctx.line_number}</span><span class="line-content">${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>` }} />))}<pre className="search-match-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${result.line_number}</span><span class="line-content">${highlightMatchesHtml(result.line_content, result.matches)}</span>` }} />{result.context_after.map((ctx) => (<pre key={`after-${ctx.line_number}`} className="search-context-line" dangerouslySetInnerHTML={{ __html: `<span class="line-number">${ctx.line_number}</span><span class="line-content">${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>` }} />))}</div>
+                        <div className="search-result-code">
+                          {result.context_before.map((ctx) => (
+                            <pre
+                              key={`before-${ctx.line_number}`}
+                              className="search-context-line"
+                              dangerouslySetInnerHTML={{
+                                __html: `<span class="line-number">${ctx.line_number}</span><span class="line-content">${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`,
+                              }}
+                            />
+                          ))}
+                          <pre
+                            className="search-match-line"
+                            dangerouslySetInnerHTML={{
+                              __html: `<span class="line-number">${result.line_number}</span><span class="line-content">${highlightMatchesHtml(result.line_content, result.matches)}</span>`,
+                            }}
+                          />
+                          {result.context_after.map((ctx) => (
+                            <pre
+                              key={`after-${ctx.line_number}`}
+                              className="search-context-line"
+                              dangerouslySetInnerHTML={{
+                                __html: `<span class="line-number">${ctx.line_number}</span><span class="line-content">${ctx.content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`,
+                              }}
+                            />
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
@@ -2937,7 +2981,7 @@ function App() {
                   <button
                     className="icon-btn"
                     onClick={openInIde}
-                    title={`Open in ${installedIdes.find(i => i.command === preferredIde)?.name || "IDE"}`}
+                    title={`Open in ${installedIdes.find((i) => i.command === preferredIde)?.name || "IDE"}`}
                     disabled={!preferredIde}
                   >
                     <Code size={16} />
@@ -3196,9 +3240,7 @@ function App() {
                       <h4 className="command-group-label">Info</h4>
                       <div className="command-grid">
                         <button
-                          onClick={() =>
-                            runCargoCommand("doc", ["--no-deps"])
-                          }
+                          onClick={() => runCargoCommand("doc", ["--no-deps"])}
                           disabled={runningCommand !== null}
                           className="command-btn"
                           title="Generate documentation for this project"
@@ -3298,118 +3340,201 @@ function App() {
                     </div>
                   )}
 
-                  {commandHistory.length > 1 && (
+                  {commandHistory.length > 0 && (
                     <div className="history-controls">
                       <button
                         className="command-btn small"
-                        onClick={() => {
-                          const allCollapsed = commandHistory.every((e) => e.isCollapsed);
-                          toggleAllCommandHistory(!allCollapsed);
-                        }}
-                        title={commandHistory.every((e) => e.isCollapsed) ? "Expand all command logs" : "Collapse all command logs"}
+                        onClick={() => setCommandHistory([])}
+                        title="Clear all command history"
                       >
-                        {commandHistory.every((e) => e.isCollapsed) ? (
-                          <>
-                            <CaretDown size={14} className="rotated" /> Expand All
-                          </>
-                        ) : (
-                          <>
-                            <CaretDown size={14} /> Collapse All
-                          </>
-                        )}
+                        <Trash size={14} /> Clear History
                       </button>
+                      {commandHistory.length > 1 && (
+                        <button
+                          className="command-btn small"
+                          onClick={() => {
+                            const allCollapsed = commandHistory.every(
+                              (e) => e.isCollapsed,
+                            );
+                            toggleAllCommandHistory(!allCollapsed);
+                          }}
+                          title={
+                            commandHistory.every((e) => e.isCollapsed)
+                              ? "Expand all command logs"
+                              : "Collapse all command logs"
+                          }
+                        >
+                          {commandHistory.every((e) => e.isCollapsed) ? (
+                            <>
+                              <CaretDown size={14} className="rotated" /> Expand
+                              All
+                            </>
+                          ) : (
+                            <>
+                              <CaretDown size={14} /> Collapse All
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
 
                 <div className="output-panel">
-                  {runningCommand && !isStreaming && (
-                    <div className="command-running">
-                      <Spinner size={20} className="spinning" />
-                      Running cargo {runningCommand}...
-                    </div>
-                  )}
-
-                  {isStreaming && (
-                    <div className="command-output streaming-command">
-                      <div className="command-output-header">
-                        <span className="command-status running">
-                          <Spinner size={16} className="spinning" /> Running
-                        </span>
-                        <span className="command-name">
-                          cargo {runningCommand}
-                        </span>
-                      </div>
-                      <pre
-                        ref={outputRef}
-                        className="command-output-text streaming"
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(
-                            streamingOutput
-                              .map((line) => ansiConverter.current.toHtml(line))
-                              .join("\n") || "(waiting for output...)",
-                          ),
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {commandHistory.length > 0 && (
+                  {(isStreaming || commandHistory.length > 0) && (
                     <div className="command-history">
-                      {commandHistory.map((entry) => (
-                        <div
-                          key={entry.id}
-                          className={`command-output ${entry.isCollapsed ? "collapsed" : ""}`}
-                        >
-                          <div
-                            className="command-output-header clickable"
-                            onClick={() => toggleCommandHistoryCollapse(entry.id)}
-                          >
-                            <span
-                              className={`command-status ${entry.success ? "success" : "error"}`}
-                            >
-                              {entry.success ? (
-                                <>
-                                  <CheckCircle size={16} weight="fill" /> Success
-                                </>
-                              ) : (
-                                <>
-                                  <XCircle size={16} weight="fill" /> Failed (exit
-                                  code: {entry.exitCode})
-                                </>
-                              )}
+                      {isStreaming && (
+                        <div className="command-output streaming-command">
+                          <div className="command-output-header">
+                            <span className="command-status running">
+                              <Spinner size={16} className="spinning" /> Running
                             </span>
                             <span className="command-name">
-                              cargo {entry.command}
+                              cargo {runningCommand}
                             </span>
                             <span className="command-meta">
-                              {entry.output?.length || 0} lines • {formatDuration(entry.durationMs)}
+                              {streamingFilter
+                                ? `${streamingOutput.filter((line) => line.toLowerCase().includes(streamingFilter.toLowerCase())).length}/${streamingOutput.length} lines`
+                                : `${streamingOutput.length} lines`}{" "}
+                              • {formatDuration(streamingElapsed)}
                             </span>
-                            <span className="command-time">
-                              {formatTimeAgo(Math.floor(entry.timestamp / 1000))}
-                            </span>
-                            <span className="collapse-indicator">
-                              {entry.isCollapsed ? <CaretDown size={14} /> : <CaretDown size={14} className="rotated" />}
+                            <span className="log-search-wrapper">
+                              <MagnifyingGlass size={12} />
+                              <input
+                                type="text"
+                                className="log-search-input"
+                                placeholder="Filter..."
+                                value={streamingFilter}
+                                onChange={(e) =>
+                                  setStreamingFilter(e.target.value)
+                                }
+                                autoCorrect="off"
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
                             </span>
                           </div>
-                          {!entry.isCollapsed && (
-                            <pre
-                              className="command-output-text"
-                              dangerouslySetInnerHTML={{
-                                __html: DOMPurify.sanitize(
-                                  entry.output.length > 0
-                                    ? entry.output
-                                        .map((line) =>
-                                          ansiConverter.current.toHtml(line),
-                                        )
-                                        .join("\n")
-                                    : "(no output)",
-                                ),
-                              }}
-                            />
-                          )}
+                          <pre
+                            ref={outputRef}
+                            className="command-output-text streaming"
+                            dangerouslySetInnerHTML={{
+                              __html: DOMPurify.sanitize(
+                                (streamingFilter
+                                  ? streamingOutput.filter((line) =>
+                                      line
+                                        .toLowerCase()
+                                        .includes(streamingFilter.toLowerCase()),
+                                    )
+                                  : streamingOutput
+                                )
+                                  .map((line) => ansiConverter.current.toHtml(line))
+                                  .join("\n") || "(waiting for output...)",
+                              ),
+                            }}
+                          />
                         </div>
-                      ))}
+                      )}
+
+                      {commandHistory.map((entry) => {
+                        const entryFilter = logSearchFilters[entry.id] || "";
+                        const filteredOutput = entryFilter
+                          ? entry.output.filter((line) =>
+                              line
+                                .toLowerCase()
+                                .includes(entryFilter.toLowerCase()),
+                            )
+                          : entry.output;
+                        return (
+                          <div
+                            key={entry.id}
+                            className={`command-output ${entry.isCollapsed ? "collapsed" : ""}`}
+                          >
+                            <div
+                              className="command-output-header clickable"
+                              onClick={() =>
+                                toggleCommandHistoryCollapse(entry.id)
+                              }
+                            >
+                              <span
+                                className={`command-status ${entry.success ? "success" : "error"}`}
+                              >
+                                {entry.success ? (
+                                  <>
+                                    <CheckCircle size={16} weight="fill" />{" "}
+                                    Success
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle size={16} weight="fill" /> Failed
+                                    (exit code: {entry.exitCode})
+                                  </>
+                                )}
+                              </span>
+                              <span className="command-name">
+                                cargo {entry.command}
+                              </span>
+                              <div
+                                className="log-search-wrapper"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MagnifyingGlass size={12} />
+                                <input
+                                  type="text"
+                                  className="log-search-input"
+                                  placeholder="Filter..."
+                                  value={entryFilter}
+                                  onChange={(e) =>
+                                    setLogSearchFilters((prev) => ({
+                                      ...prev,
+                                      [entry.id]: e.target.value,
+                                    }))
+                                  }
+                                  autoCorrect="off"
+                                  autoCapitalize="off"
+                                  spellCheck={false}
+                                />
+                              </div>
+                              <span className="command-meta">
+                                {entryFilter &&
+                                filteredOutput.length !== entry.output.length
+                                  ? `${filteredOutput.length}/${entry.output.length}`
+                                  : entry.output?.length || 0}{" "}
+                                lines • {formatDuration(entry.durationMs)}
+                              </span>
+                              <span className="command-time">
+                                {formatTimeAgo(
+                                  Math.floor(entry.timestamp / 1000),
+                                )}
+                              </span>
+                              <span className="collapse-indicator">
+                                {entry.isCollapsed ? (
+                                  <CaretDown size={14} />
+                                ) : (
+                                  <CaretDown size={14} className="rotated" />
+                                )}
+                              </span>
+                            </div>
+                            {!entry.isCollapsed && (
+                              <pre
+                                className="command-output-text"
+                                dangerouslySetInnerHTML={{
+                                  __html: DOMPurify.sanitize(
+                                    filteredOutput.length > 0
+                                      ? filteredOutput
+                                          .map((line) =>
+                                            ansiConverter.current.toHtml(line),
+                                          )
+                                          .join("\n")
+                                      : entryFilter
+                                        ? "(no matching lines)"
+                                        : "(no output)",
+                                  ),
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3473,9 +3598,17 @@ function App() {
                 {/* Test Output Section */}
                 {(() => {
                   const testEntry = commandHistory.find(
-                    (e) => e.command === "test" || e.command === "bench" || e.command === "tarpaulin"
+                    (e) =>
+                      e.command === "test" ||
+                      e.command === "bench" ||
+                      e.command === "tarpaulin",
                   );
-                  const showTestOutput = testEntry || (isStreaming && (runningCommand === "test" || runningCommand === "bench" || runningCommand === "tarpaulin"));
+                  const showTestOutput =
+                    testEntry ||
+                    (isStreaming &&
+                      (runningCommand === "test" ||
+                        runningCommand === "bench" ||
+                        runningCommand === "tarpaulin"));
                   if (!showTestOutput) return null;
                   const currentCommand = testEntry?.command || runningCommand;
                   return (
@@ -3504,7 +3637,8 @@ function App() {
                           </span>
                         ) : (
                           <span className="test-status-badge running">
-                            <Spinner size={14} className="spinning" /> Running...
+                            <Spinner size={14} className="spinning" />{" "}
+                            Running...
                           </span>
                         )}
                       </div>
@@ -3822,7 +3956,9 @@ function App() {
                 </div>
                 {(() => {
                   const upgradeEntry = commandHistory.find(
-                    (e) => e.command === "upgrade" || e.command.startsWith("upgrade ")
+                    (e) =>
+                      e.command === "upgrade" ||
+                      e.command.startsWith("upgrade "),
                   );
                   if (!upgradeEntry) return null;
                   return (
@@ -4374,7 +4510,9 @@ function App() {
                       const newIde = e.target.value;
                       setPreferredIde(newIde);
                       try {
-                        await invoke("set_preferred_ide", { ideCommand: newIde });
+                        await invoke("set_preferred_ide", {
+                          ideCommand: newIde,
+                        });
                       } catch (err) {
                         console.error("Failed to save IDE preference:", err);
                       }
@@ -4389,11 +4527,15 @@ function App() {
                   </select>
                 </div>
               ) : (
-                <p className="settings-hint">No supported IDEs detected on your system.</p>
+                <p className="settings-hint">
+                  No supported IDEs detected on your system.
+                </p>
               )}
               {preferredIde && (
                 <p className="settings-current">
-                  Current: {installedIdes.find(i => i.command === preferredIde)?.name || preferredIde}
+                  Current:{" "}
+                  {installedIdes.find((i) => i.command === preferredIde)
+                    ?.name || preferredIde}
                 </p>
               )}
             </div>

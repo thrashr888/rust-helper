@@ -2739,6 +2739,9 @@ button svg {
 }
 
 .history-controls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
@@ -2755,4 +2758,33 @@ button svg {
 
 .history-controls .command-btn svg.rotated {
   transform: rotate(180deg);
+}
+
+.log-search-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.log-search-wrapper:focus-within {
+  border-color: var(--accent);
+}
+
+.log-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 11px;
+  width: 80px;
+}
+
+.log-search-input::placeholder {
+  color: var(--text-secondary);
 }
