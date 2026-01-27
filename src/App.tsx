@@ -861,8 +861,12 @@ function App() {
         "cargo-output",
         (event) => {
           // Update streaming output for live display
-          streamingOutputRef.current = [...streamingOutputRef.current, event.payload.line];
-          setStreamingOutput(streamingOutputRef.current);
+          // Use functional update to ensure React sees state change
+          setStreamingOutput((prev) => {
+            const newOutput = [...prev, event.payload.line];
+            streamingOutputRef.current = newOutput;
+            return newOutput;
+          });
           // Auto-scroll to bottom
           if (outputRef.current) {
             outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -3064,7 +3068,7 @@ function App() {
                       <h4 className="command-group-label">Build & Run</h4>
                       <div className="command-grid">
                         <button
-                          onClick={() => runCargoCommand("check", ["--quiet"])}
+                          onClick={() => runCargoCommand("check", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
                           title="Quickly check code for errors without producing binaries"
@@ -3077,7 +3081,7 @@ function App() {
                           Check
                         </button>
                         <button
-                          onClick={() => runCargoCommand("build", ["--quiet"])}
+                          onClick={() => runCargoCommand("build", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
                           title="Compile the project in debug mode"
@@ -3091,7 +3095,7 @@ function App() {
                         </button>
                         <button
                           onClick={() =>
-                            runCargoCommand("build", ["--release", "--quiet"])
+                            runCargoCommand("build", ["--release"])
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
@@ -3172,7 +3176,6 @@ function App() {
                               "--fix",
                               "--allow-dirty",
                               "--allow-staged",
-                              "--quiet",
                             ])
                           }
                           disabled={runningCommand !== null}
@@ -3194,7 +3197,7 @@ function App() {
                       <div className="command-grid">
                         <button
                           onClick={() =>
-                            runCargoCommand("doc", ["--no-deps", "--quiet"])
+                            runCargoCommand("doc", ["--no-deps"])
                           }
                           disabled={runningCommand !== null}
                           className="command-btn"
@@ -3229,7 +3232,7 @@ function App() {
                       <h4 className="command-group-label">Maintenance</h4>
                       <div className="command-grid">
                         <button
-                          onClick={() => runCargoCommand("update", ["--quiet"])}
+                          onClick={() => runCargoCommand("update", [])}
                           disabled={runningCommand !== null}
                           className="command-btn"
                           title="Update Cargo.lock to latest compatible dependency versions"
