@@ -37,6 +37,7 @@ export interface Project {
   commit_count: number;
   version: string | null;
   rust_version: string | null;
+  homepage: string | null;
 }
 
 export interface CleanResult {

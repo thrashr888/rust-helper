@@ -71,6 +71,7 @@ pub struct Project {
     pub commit_count: u32,
     pub version: Option<String>,
     pub rust_version: Option<String>,
+    pub homepage: Option<String>,
 }
 
 /// Parsed information from a Cargo.toml file
@@ -79,6 +80,7 @@ struct CargoTomlInfo {
     dep_count: usize,
     version: Option<String>,
     rust_version: Option<String>,
+    homepage: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +96,7 @@ struct Package {
     version: Option<String>,
     #[serde(rename = "rust-version")]
     rust_version: Option<String>,
+    homepage: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,10 +163,10 @@ fn parse_cargo_toml(path: &Path) -> Option<CargoTomlInfo> {
     let content = fs::read_to_string(path).ok()?;
     let cargo: CargoToml = toml::from_str(&content).ok()?;
 
-    let (name, version, rust_version) = cargo
+    let (name, version, rust_version, homepage) = cargo
         .package
-        .map(|p| (p.name, p.version, p.rust_version))
-        .unwrap_or((None, None, None));
+        .map(|p| (p.name, p.version, p.rust_version, p.homepage))
+        .unwrap_or((None, None, None, None));
 
     let name = name.unwrap_or_else(|| "unknown".to_string());
     let dep_count = cargo.dependencies.map(|d| d.len()).unwrap_or(0);
@@ -173,6 +176,7 @@ fn parse_cargo_toml(path: &Path) -> Option<CargoTomlInfo> {
         dep_count,
         version,
         rust_version,
+        homepage,
     })
 }
 
@@ -333,6 +337,7 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
                     commit_count,
                     version: cargo_info.version,
                     rust_version: cargo_info.rust_version,
+                    homepage: cargo_info.homepage,
                 });
             }
         }

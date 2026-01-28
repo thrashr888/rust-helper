@@ -1,4 +1,4 @@
-import { Star, Eye, EyeSlash, GithubLogo, GitBranch } from "@phosphor-icons/react";
+import { Star, Eye, EyeSlash, GithubLogo, GitBranch, Globe } from "@phosphor-icons/react";
 import type { Project } from "../types";
 import { formatBytes, formatTimeAgo } from "../utils/formatting";
 
@@ -34,6 +34,18 @@ export function ProjectCard({
           )}
         </h3>
         <div className="card-actions">
+          {project.homepage && (
+            <a
+              href={project.homepage}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="icon-btn"
+              onClick={(e) => e.stopPropagation()}
+              title={project.homepage}
+            >
+              <Globe size={16} />
+            </a>
+          )}
           {project.git_url && (
             <a
               href={project.git_url}
