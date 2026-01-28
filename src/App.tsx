@@ -46,6 +46,8 @@ import {
   Cpu,
   X,
   Tag,
+  Copy,
+  Check,
 } from "@phosphor-icons/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { check, Update } from "@tauri-apps/plugin-updater";
@@ -546,6 +548,7 @@ function App() {
   );
   const [githubActionsInfo, setGithubActionsInfo] =
     useState<GithubActionsInfo | null>(null);
+  const [copiedFailureId, setCopiedFailureId] = useState<string | null>(null);
   const [msrvInfo, setMsrvInfo] = useState<MsrvInfo | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
@@ -1451,6 +1454,18 @@ function App() {
     } else {
       // Fallback to regular cargo test
       await runCargoCommand("test", ["--color", "always"]);
+    }
+  };
+
+  const copyFailureToClipboard = async (testName: string, message: string) => {
+    const failureId = `${testName}`;
+    const textToCopy = `Test: ${testName}\n\n${message}`;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedFailureId(failureId);
+      setTimeout(() => setCopiedFailureId(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy to clipboard:", err);
     }
   };
 
@@ -3773,7 +3788,32 @@ function App() {
                                 </span>
                                 {test.failure_message && (
                                   <div className="failure-message">
-                                    {test.failure_message}
+                                    <div className="failure-message-header">
+                                      <span className="failure-label">Error</span>
+                                      <button
+                                        className="copy-failure-btn"
+                                        onClick={() =>
+                                          copyFailureToClipboard(
+                                            test.name,
+                                            test.failure_message || "",
+                                          )
+                                        }
+                                        title="Copy error to clipboard"
+                                      >
+                                        {copiedFailureId === test.name ? (
+                                          <>
+                                            <Check size={12} /> Copied
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy size={12} /> Copy
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
+                                    <pre className="failure-message-text">
+                                      {test.failure_message}
+                                    </pre>
                                   </div>
                                 )}
                               </div>

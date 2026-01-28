@@ -2904,6 +2904,7 @@ button svg {
 .test-case {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 4px 12px 4px 20px;
   font-size: 12px;
@@ -2950,10 +2951,52 @@ button svg {
 .failure-message {
   width: 100%;
   margin-top: 4px;
-  padding: 6px 8px;
   background: var(--bg-secondary);
   border-radius: 4px;
   font-size: 11px;
   color: var(--error);
+  overflow: hidden;
+}
+
+.failure-message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.15);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.failure-label {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.copy-failure-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copy-failure-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.failure-message-text {
+  margin: 0;
+  padding: 8px;
   white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
 }

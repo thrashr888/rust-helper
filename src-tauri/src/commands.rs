@@ -3655,10 +3655,19 @@ fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
     if let Some(start) = line.find(&pattern) {
         let value_start = start + pattern.len();
         if let Some(end) = line[value_start..].find('"') {
-            return Some(line[value_start..value_start + end].to_string());
+            let raw_value = &line[value_start..value_start + end];
+            return Some(decode_xml_entities(raw_value));
         }
     }
     None
+}
+
+fn decode_xml_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
 }
 
 // ============ GitHub Actions Detection ============
@@ -3750,6 +3759,15 @@ mod tests {
     fn test_extract_xml_attr_empty_value() {
         let line = r#"<testcase name="" classname="foo">"#;
         assert_eq!(extract_xml_attr(line, "name"), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_extract_xml_attr_decodes_entities() {
+        let line = r#"<failure message="test &apos;foo&apos; &amp; &lt;bar&gt;">"#;
+        assert_eq!(
+            extract_xml_attr(line, "message"),
+            Some("test 'foo' & <bar>".to_string())
+        );
     }
 
     #[test]
@@ -3941,5 +3959,202 @@ mod tests {
         let size = get_dir_size(Path::new("."));
         // Current directory should have some size
         assert!(size > 0);
+    }
+
+    // ============ XML Entity Decoding Tests ============
+
+    #[test]
+    fn test_decode_xml_entities_all_entities() {
+        assert_eq!(decode_xml_entities("&amp;"), "&");
+        assert_eq!(decode_xml_entities("&lt;"), "<");
+        assert_eq!(decode_xml_entities("&gt;"), ">");
+        assert_eq!(decode_xml_entities("&quot;"), "\"");
+        assert_eq!(decode_xml_entities("&apos;"), "'");
+    }
+
+    #[test]
+    fn test_decode_xml_entities_mixed() {
+        let input = "test &apos;value&apos; with &lt;tags&gt; &amp; \"quotes\"";
+        let expected = "test 'value' with <tags> & \"quotes\"";
+        assert_eq!(decode_xml_entities(input), expected);
+    }
+
+    #[test]
+    fn test_decode_xml_entities_no_entities() {
+        let input = "plain text without entities";
+        assert_eq!(decode_xml_entities(input), input);
+    }
+
+    #[test]
+    fn test_decode_xml_entities_multiple_same() {
+        let input = "&apos;&apos;&apos;";
+        assert_eq!(decode_xml_entities(input), "'''");
+    }
+
+    // ============ Cargo TOML Parsing Tests ============
+
+    #[test]
+    fn test_cargo_toml_parsing_basic() {
+        let toml_content = r#"
+[package]
+name = "my-crate"
+version = "0.1.0"
+
+[dependencies]
+serde = "1.0"
+tokio = "1.0"
+"#;
+        let cargo: CargoToml = toml::from_str(toml_content).unwrap();
+        assert_eq!(cargo.package.as_ref().unwrap().name, Some("my-crate".to_string()));
+        assert_eq!(cargo.dependencies.as_ref().unwrap().len(), 2);
+        assert!(cargo.workspace.is_none());
+    }
+
+    #[test]
+    fn test_cargo_toml_parsing_workspace() {
+        let toml_content = r#"
+[workspace]
+members = ["crate-a", "crate-b", "crates/*"]
+"#;
+        let cargo: CargoToml = toml::from_str(toml_content).unwrap();
+        assert!(cargo.workspace.is_some());
+        let workspace = cargo.workspace.unwrap();
+        assert_eq!(workspace.members.as_ref().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_cargo_toml_parsing_no_package() {
+        let toml_content = r#"
+[dependencies]
+serde = "1.0"
+"#;
+        let cargo: CargoToml = toml::from_str(toml_content).unwrap();
+        assert!(cargo.package.is_none());
+    }
+
+    // ============ Cargo Outdated JSON Parsing Tests ============
+
+    #[test]
+    fn test_cargo_outdated_json_parsing() {
+        let json = r#"{
+            "dependencies": [
+                {"name": "serde", "project": "1.0.0", "latest": "1.0.200", "kind": "Normal"},
+                {"name": "tokio", "project": "1.35.0", "latest": "1.36.0", "kind": "Normal"}
+            ]
+        }"#;
+        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.dependencies.len(), 2);
+        assert_eq!(parsed.dependencies[0].name, "serde");
+        assert_eq!(parsed.dependencies[0].project, "1.0.0");
+        assert_eq!(parsed.dependencies[0].latest, "1.0.200");
+    }
+
+    #[test]
+    fn test_cargo_outdated_json_empty() {
+        let json = r#"{"dependencies": []}"#;
+        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.dependencies.len(), 0);
+    }
+
+    #[test]
+    fn test_cargo_outdated_json_optional_kind() {
+        let json = r#"{
+            "dependencies": [
+                {"name": "serde", "project": "1.0.0", "latest": "1.0.200"}
+            ]
+        }"#;
+        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
+        assert!(parsed.dependencies[0].kind.is_none());
+    }
+
+    // ============ MSRV/Edition Parsing Tests ============
+
+    #[test]
+    fn test_msrv_parsing_from_toml() {
+        let toml_content = r#"
+[package]
+name = "test"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+"#;
+        let table: toml::Table = toml_content.parse().unwrap();
+        let package = table.get("package").and_then(|p| p.as_table());
+
+        let edition = package
+            .and_then(|p| p.get("edition"))
+            .and_then(|v| v.as_str());
+        let rust_version = package
+            .and_then(|p| p.get("rust-version"))
+            .and_then(|v| v.as_str());
+
+        assert_eq!(edition, Some("2021"));
+        assert_eq!(rust_version, Some("1.70"));
+    }
+
+    #[test]
+    fn test_msrv_parsing_missing_fields() {
+        let toml_content = r#"
+[package]
+name = "test"
+version = "0.1.0"
+"#;
+        let table: toml::Table = toml_content.parse().unwrap();
+        let package = table.get("package").and_then(|p| p.as_table());
+
+        let edition = package
+            .and_then(|p| p.get("edition"))
+            .and_then(|v| v.as_str());
+        let rust_version = package
+            .and_then(|p| p.get("rust-version"))
+            .and_then(|v| v.as_str());
+
+        assert_eq!(edition, None);
+        assert_eq!(rust_version, None);
+    }
+
+    // ============ Last Modified Tests ============
+
+    #[test]
+    fn test_get_last_modified_nonexistent() {
+        let ts = get_last_modified(Path::new("/nonexistent/path"));
+        assert_eq!(ts, 0);
+    }
+
+    #[test]
+    fn test_get_last_modified_current_dir() {
+        let ts = get_last_modified(Path::new("."));
+        // Should be a reasonable Unix timestamp (after year 2020)
+        assert!(ts > 1577836800);
+    }
+
+    // ============ Dependency Analysis Helper Tests ============
+
+    #[test]
+    fn test_extract_version_with_features() {
+        let toml_str = r#"
+version = "1.0"
+features = ["full"]
+"#;
+        let value: toml::Value = toml::from_str(toml_str).unwrap();
+        assert_eq!(extract_version(&value), Some("1.0".to_string()));
+    }
+
+    #[test]
+    fn test_extract_version_git_dep() {
+        let toml_str = r#"
+git = "https://github.com/foo/bar"
+"#;
+        let value: toml::Value = toml::from_str(toml_str).unwrap();
+        assert_eq!(extract_version(&value), None);
+    }
+
+    #[test]
+    fn test_extract_version_path_dep() {
+        let toml_str = r#"
+path = "../other-crate"
+"#;
+        let value: toml::Value = toml::from_str(toml_str).unwrap();
+        assert_eq!(extract_version(&value), None);
     }
 }
