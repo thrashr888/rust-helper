@@ -45,12 +45,13 @@ import type {
   ToolStatus,
   NextestResults,
   GithubActionsInfo,
+  BackgroundJob,
 } from "./types";
 import { formatBytes, formatTimeAgo, formatDuration } from "./utils/formatting";
+import { Sidebar, ProjectCard } from "./components";
 
 hljs.registerLanguage("toml", toml);
 import {
-  Folder,
   FolderOpen,
   Broom,
   Package,
@@ -58,8 +59,6 @@ import {
   Heartbeat,
   ChartBar,
   Gear,
-  Star,
-  Eye,
   EyeSlash,
   CaretDown,
   TreeStructure,
@@ -84,7 +83,6 @@ import {
   MagnifyingGlass,
   GitBranch,
   Cpu,
-  X,
   Tag,
   Copy,
   Check,
@@ -219,11 +217,6 @@ function App() {
   const [preferredIde, setPreferredIde] = useState<string | null>(null);
 
   // Background job queue
-  interface BackgroundJob {
-    id: string;
-    label: string;
-    startTime: number;
-  }
   const [jobs, setJobs] = useState<BackgroundJob[]>([]);
 
   const addJob = (id: string, label: string) => {
@@ -1308,80 +1301,24 @@ function App() {
     };
   }, [auditResults]);
 
-  const navItems = [
-    { id: "projects" as View, label: "Projects", icon: Folder },
-    { id: "search" as View, label: "Search", icon: MagnifyingGlass },
-    { id: "cleanup" as View, label: "Cleanup", icon: Broom },
-    { id: "dependencies" as View, label: "Dependencies", icon: Package },
-    { id: "security" as View, label: "Security", icon: ShieldCheck },
-    { id: "health" as View, label: "Health", icon: Heartbeat },
-    { id: "analysis" as View, label: "Analysis", icon: ChartBar },
-    { id: "licenses" as View, label: "Licenses", icon: Scroll },
-    { id: "settings" as View, label: "Settings", icon: Gear },
-  ];
+  const handleCancelCargoCommand = () => {
+    setRunningCommand(null);
+    setIsStreaming(false);
+    setRunningCoverage(false);
+  };
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <nav>
-          {navItems.map(({ id, label, icon: Icon }) => (
-            <div key={id}>
-              <div
-                className={`nav-item ${view === id ? "active" : ""}`}
-                onClick={() => setView(id)}
-              >
-                <Icon size={20} />
-                {label}
-              </div>
-              {id === "projects" && favorites.size > 0 && (
-                <div className="nav-favorites">
-                  {projects
-                    .filter((p) => favorites.has(p.path))
-                    .map((project) => (
-                      <div
-                        key={project.path}
-                        className="nav-favorite-item"
-                        onClick={() => openProjectDetail(project)}
-                        title={project.path}
-                      >
-                        <Star size={12} weight="fill" />
-                        {project.name}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </nav>
-        {jobs.length > 0 && (
-          <div className="job-queue">
-            <div className="job-queue-header">
-              <Spinner size={14} className="spinning" />
-              Running ({jobs.length})
-            </div>
-            {jobs.map((job) => (
-              <div key={job.id} className="job-item">
-                <span className="job-label">{job.label}</span>
-                <button
-                  className="job-cancel"
-                  onClick={() => {
-                    removeJob(job.id);
-                    // Reset relevant state if this was a cargo command
-                    if (job.id.startsWith("cargo-")) {
-                      setRunningCommand(null);
-                      setIsStreaming(false);
-                      setRunningCoverage(false);
-                    }
-                  }}
-                  title="Cancel"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </aside>
+      <Sidebar
+        view={view}
+        setView={setView}
+        projects={projects}
+        favorites={favorites}
+        jobs={jobs}
+        removeJob={removeJob}
+        openProjectDetail={openProjectDetail}
+        onCancelCargoCommand={handleCancelCargoCommand}
+      />
 
       <main className="main">
         {view === "projects" && (
@@ -1469,73 +1406,15 @@ function App() {
 
                 <div className="project-grid">
                   {filteredAndSortedProjects.map((project) => (
-                    <div
+                    <ProjectCard
                       key={project.path}
-                      className={`project-card clickable ${
-                        favorites.has(project.path) ? "favorite" : ""
-                      } ${hidden.has(project.path) ? "hidden-project" : ""} ${
-                        project.is_workspace_member ? "workspace-member" : ""
-                      }`}
-                      onClick={() => openProjectDetail(project)}
-                    >
-                      <div className="card-header">
-                        <h3>{project.name}</h3>
-                        <div className="card-actions">
-                          <button
-                            className={`icon-btn ${
-                              favorites.has(project.path) ? "active" : ""
-                            }`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleFavorite(project.path);
-                            }}
-                            title={
-                              favorites.has(project.path)
-                                ? "Remove from favorites"
-                                : "Add to favorites"
-                            }
-                          >
-                            <Star
-                              size={16}
-                              weight={
-                                favorites.has(project.path) ? "fill" : "regular"
-                              }
-                            />
-                          </button>
-                          <button
-                            className={`icon-btn ${
-                              hidden.has(project.path) ? "active" : ""
-                            }`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleHidden(project.path);
-                            }}
-                            title={hidden.has(project.path) ? "Unhide" : "Hide"}
-                          >
-                            {hidden.has(project.path) ? (
-                              <EyeSlash size={16} />
-                            ) : (
-                              <Eye size={16} />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                      <p className="path">{project.path}</p>
-                      {project.is_workspace_member && (
-                        <p className="workspace-badge">workspace member</p>
-                      )}
-                      <div className="stats">
-                        <span className="stat size">
-                          {formatBytes(project.target_size)}
-                        </span>
-                        <span className="stat deps">
-                          {project.dep_count} deps
-                        </span>
-                        <span className="stat time">
-                          {formatTimeAgo(project.last_modified)}
-                        </span>
-                      </div>
-                    </div>
+                      project={project}
+                      isFavorite={favorites.has(project.path)}
+                      isHidden={hidden.has(project.path)}
+                      onToggleFavorite={toggleFavorite}
+                      onToggleHidden={toggleHidden}
+                      onClick={openProjectDetail}
+                    />
                   ))}
                 </div>
               </>

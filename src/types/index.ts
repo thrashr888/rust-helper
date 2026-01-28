@@ -410,3 +410,10 @@ export interface NextestResults {
   total_skipped: number;
   total_time_seconds: number;
 }
+
+// UI types
+export interface BackgroundJob {
+  id: string;
+  label: string;
+  startTime: number;
+}
