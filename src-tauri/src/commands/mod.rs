@@ -73,6 +73,14 @@ pub struct Project {
     pub rust_version: Option<String>,
 }
 
+/// Parsed information from a Cargo.toml file
+struct CargoTomlInfo {
+    name: String,
+    dep_count: usize,
+    version: Option<String>,
+    rust_version: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct CargoToml {
     package: Option<Package>,
@@ -147,8 +155,8 @@ fn get_last_modified(path: &Path) -> u64 {
     latest
 }
 
-/// Returns (name, dep_count, is_workspace_root, version, rust_version)
-fn parse_cargo_toml(path: &Path) -> Option<(String, usize, bool, Option<String>, Option<String>)> {
+/// Parse a Cargo.toml file and extract project information
+fn parse_cargo_toml(path: &Path) -> Option<CargoTomlInfo> {
     let content = fs::read_to_string(path).ok()?;
     let cargo: CargoToml = toml::from_str(&content).ok()?;
 
@@ -159,9 +167,13 @@ fn parse_cargo_toml(path: &Path) -> Option<(String, usize, bool, Option<String>,
 
     let name = name.unwrap_or_else(|| "unknown".to_string());
     let dep_count = cargo.dependencies.map(|d| d.len()).unwrap_or(0);
-    let is_workspace_root = cargo.workspace.is_some();
 
-    Some((name, dep_count, is_workspace_root, version, rust_version))
+    Some(CargoTomlInfo {
+        name,
+        dep_count,
+        version,
+        rust_version,
+    })
 }
 
 /// Get git remote URL for a project directory
@@ -276,9 +288,7 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
 
             let project_dir = path.parent().unwrap();
 
-            if let Some((name, dep_count, _is_workspace_root, version, rust_version)) =
-                parse_cargo_toml(path)
-            {
+            if let Some(cargo_info) = parse_cargo_toml(path) {
                 let target_path = project_dir.join("target");
                 let target_size = get_dir_size(&target_path);
                 let last_modified = get_last_modified(project_dir);
@@ -312,17 +322,17 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
                 let commit_count = get_project_commit_count(project_dir);
 
                 projects.push(Project {
-                    name,
+                    name: cargo_info.name,
                     path: project_dir.to_string_lossy().to_string(),
                     target_size,
-                    dep_count,
+                    dep_count: cargo_info.dep_count,
                     last_modified,
                     is_workspace_member,
                     workspace_root,
                     git_url,
                     commit_count,
-                    version,
-                    rust_version,
+                    version: cargo_info.version,
+                    rust_version: cargo_info.rust_version,
                 });
             }
         }
