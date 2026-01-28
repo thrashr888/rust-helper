@@ -374,6 +374,40 @@ interface ToolStatus {
   description: string;
 }
 
+interface TestResult {
+  name: string;
+  classname: string;
+  time_seconds: number;
+  status: "passed" | "failed" | "skipped";
+  failure_message: string | null;
+}
+
+interface TestSuiteResult {
+  name: string;
+  tests: number;
+  failures: number;
+  errors: number;
+  skipped: number;
+  time_seconds: number;
+  test_cases: TestResult[];
+}
+
+interface NextestResults {
+  suites: TestSuiteResult[];
+  total_tests: number;
+  total_passed: number;
+  total_failed: number;
+  total_skipped: number;
+  total_time_seconds: number;
+}
+
+interface GithubActionsInfo {
+  has_workflows: boolean;
+  workflow_files: string[];
+  github_url: string | null;
+  actions_url: string | null;
+}
+
 interface Project {
   name: string;
   path: string;
@@ -507,6 +541,11 @@ function App() {
   );
   const [runningCoverage, setRunningCoverage] = useState(false);
   const [coverageError, setCoverageError] = useState<string | null>(null);
+  const [nextestResults, setNextestResults] = useState<NextestResults | null>(
+    null,
+  );
+  const [githubActionsInfo, setGithubActionsInfo] =
+    useState<GithubActionsInfo | null>(null);
   const [msrvInfo, setMsrvInfo] = useState<MsrvInfo | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
@@ -995,6 +1034,19 @@ function App() {
         } else if (event.payload.command === "tarpaulin" && !event.payload.success) {
           setCoverageError("Coverage analysis failed - check output for details");
         }
+
+        // Handle nextest results - try to parse JUnit XML
+        if (event.payload.command.startsWith("nextest")) {
+          try {
+            const results = await invoke<NextestResults>("parse_nextest_junit", {
+              projectPath: event.payload.project_path,
+            });
+            setNextestResults(results);
+          } catch (e) {
+            // JUnit file may not exist or parsing failed - that's ok
+            console.debug("No nextest JUnit results:", e);
+          }
+        }
       });
     };
 
@@ -1048,6 +1100,8 @@ function App() {
     setBloatAnalysis(null);
     setGitTags([]);
     setGitStats(null);
+    setNextestResults(null);
+    setGithubActionsInfo(null);
     setView("project-detail");
 
     // Load project info in background (parallel)
@@ -1078,7 +1132,11 @@ function App() {
       .then(setGithubActionsStatus)
       .catch((e) => console.error("Failed to get GitHub Actions status:", e));
 
-    await Promise.all([loadGitInfo, loadFeatures, loadBinarySizes, loadMsrv, loadWorkspace, loadGitHubActions]);
+    const loadGitHubActionsInfo = invoke<GithubActionsInfo>("detect_github_actions", { projectPath: project.path })
+      .then(setGithubActionsInfo)
+      .catch((e) => console.error("Failed to detect GitHub Actions:", e));
+
+    await Promise.all([loadGitInfo, loadFeatures, loadBinarySizes, loadMsrv, loadWorkspace, loadGitHubActions, loadGitHubActionsInfo]);
   };
 
   const checkProjectOutdated = async () => {
@@ -1361,6 +1419,38 @@ function App() {
       removeJob(jobId);
       setRunningCommand(null);
       setIsStreaming(false);
+    }
+  };
+
+  // Check if nextest is installed
+  const isNextestAvailable = () => {
+    return requiredTools.some(
+      (tool) => tool.command === "nextest" && tool.installed,
+    );
+  };
+
+  // Run tests with nextest (if available) or fallback to cargo test
+  const runTests = async () => {
+    if (!selectedProject) return;
+
+    // Clear previous results
+    setNextestResults(null);
+
+    if (isNextestAvailable()) {
+      // Run nextest with JUnit output
+      await runCargoCommand("nextest", [
+        "run",
+        "--profile",
+        "default",
+        "--color",
+        "always",
+      ]);
+
+      // After command completes, try to parse JUnit results
+      // We'll do this in the cargo-complete handler
+    } else {
+      // Fallback to regular cargo test
+      await runCargoCommand("test", ["--color", "always"]);
     }
   };
 
@@ -3551,20 +3641,41 @@ function App() {
 
             {projectDetailTab === "tests" && (
               <div className="detail-tab-content tests-tab">
+                {/* GitHub Actions Link */}
+                {githubActionsInfo?.has_workflows && githubActionsInfo.actions_url && (
+                  <div className="github-actions-link">
+                    <GithubLogo size={16} />
+                    <a
+                      href={githubActionsInfo.actions_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.open(githubActionsInfo.actions_url!, "_blank");
+                      }}
+                    >
+                      View CI on GitHub Actions
+                    </a>
+                    <span className="workflow-count">
+                      ({githubActionsInfo.workflow_files.length} workflow
+                      {githubActionsInfo.workflow_files.length !== 1 ? "s" : ""})
+                    </span>
+                  </div>
+                )}
+
                 <div className="tests-toolbar">
                   <button
-                    onClick={() =>
-                      runCargoCommand("test", ["--color", "always"])
-                    }
+                    onClick={() => runTests()}
                     disabled={runningCommand !== null}
                     className="test-btn primary"
+                    title={isNextestAvailable() ? "Run tests with cargo-nextest" : "Run tests with cargo test"}
                   >
-                    {runningCommand === "test" ? (
+                    {runningCommand === "test" || runningCommand?.startsWith("nextest") ? (
                       <Spinner size={16} className="spinning" />
                     ) : (
                       <Bug size={16} />
                     )}
-                    Run Tests
+                    Run Tests {isNextestAvailable() && "(nextest)"}
                   </button>
                   <button
                     onClick={() => runCargoCommand("bench", [])}
@@ -3603,14 +3714,87 @@ function App() {
                   </button>
                 </div>
 
+                {/* Parsed Test Results from nextest */}
+                {nextestResults && (
+                  <div className="nextest-results">
+                    <div className="nextest-summary">
+                      <h4>Test Results</h4>
+                      <div className="nextest-stats">
+                        <span className="stat passed">
+                          <CheckCircle size={14} weight="fill" />
+                          {nextestResults.total_passed} passed
+                        </span>
+                        {nextestResults.total_failed > 0 && (
+                          <span className="stat failed">
+                            <XCircle size={14} weight="fill" />
+                            {nextestResults.total_failed} failed
+                          </span>
+                        )}
+                        {nextestResults.total_skipped > 0 && (
+                          <span className="stat skipped">
+                            {nextestResults.total_skipped} skipped
+                          </span>
+                        )}
+                        <span className="stat total">
+                          {nextestResults.total_tests} total
+                        </span>
+                        <span className="stat time">
+                          {nextestResults.total_time_seconds.toFixed(2)}s
+                        </span>
+                      </div>
+                    </div>
+                    <div className="nextest-suites">
+                      {nextestResults.suites.map((suite, suiteIdx) => (
+                        <div key={suiteIdx} className="nextest-suite">
+                          <div className="suite-header">
+                            <span className="suite-name">{suite.name}</span>
+                            <span className="suite-stats">
+                              {suite.tests} tests, {suite.time_seconds.toFixed(2)}s
+                            </span>
+                          </div>
+                          <div className="test-cases">
+                            {suite.test_cases.map((test, testIdx) => (
+                              <div
+                                key={testIdx}
+                                className={`test-case ${test.status}`}
+                              >
+                                <span className={`test-status ${test.status}`}>
+                                  {test.status === "passed" ? (
+                                    <CheckCircle size={12} weight="fill" />
+                                  ) : test.status === "failed" ? (
+                                    <XCircle size={12} weight="fill" />
+                                  ) : (
+                                    <span className="skip-icon">○</span>
+                                  )}
+                                </span>
+                                <span className="test-name">{test.name}</span>
+                                <span className="test-time">
+                                  {(test.time_seconds * 1000).toFixed(0)}ms
+                                </span>
+                                {test.failure_message && (
+                                  <div className="failure-message">
+                                    {test.failure_message}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Test/Bench/Coverage Output - reuses command log viewer */}
                 {(() => {
-                  const testCommands = ["test", "bench", "tarpaulin"];
+                  const testCommands = ["test", "bench", "tarpaulin", "nextest"];
                   const testHistory = commandHistory.filter((e) =>
                     testCommands.some((cmd) => e.command.startsWith(cmd)),
                   );
                   const isTestStreaming =
-                    isStreaming && testCommands.includes(runningCommand || "");
+                    isStreaming &&
+                    (testCommands.includes(runningCommand || "") ||
+                      runningCommand?.startsWith("nextest"));
                   if (!isTestStreaming && testHistory.length === 0) return null;
 
                   return (

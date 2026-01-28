@@ -1763,6 +1763,13 @@ pub fn check_required_tools() -> Vec<ToolStatus> {
             install_cmd: "cargo install cargo-tarpaulin".to_string(),
             description: "Code coverage reporting".to_string(),
         },
+        ToolStatus {
+            name: "cargo-nextest".to_string(),
+            command: "nextest".to_string(),
+            installed: check_tool_installed("cargo", "nextest"),
+            install_cmd: "cargo install cargo-nextest".to_string(),
+            description: "Next-generation test runner with JUnit output".to_string(),
+        },
     ]
 }
 
@@ -3477,5 +3484,243 @@ pub async fn read_tarpaulin_results(project_path: String) -> Result<String, Stri
         fs::read_to_string(&json_path).map_err(|e| e.to_string())
     } else {
         Err("Coverage report not found. Make sure tarpaulin completed successfully.".to_string())
+    }
+}
+
+// ============ Nextest & Test Results ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestResult {
+    pub name: String,
+    pub classname: String,
+    pub time_seconds: f64,
+    pub status: String, // "passed", "failed", "skipped"
+    pub failure_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSuiteResult {
+    pub name: String,
+    pub tests: u32,
+    pub failures: u32,
+    pub errors: u32,
+    pub skipped: u32,
+    pub time_seconds: f64,
+    pub test_cases: Vec<TestResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NextestResults {
+    pub suites: Vec<TestSuiteResult>,
+    pub total_tests: u32,
+    pub total_passed: u32,
+    pub total_failed: u32,
+    pub total_skipped: u32,
+    pub total_time_seconds: f64,
+}
+
+#[tauri::command]
+pub fn parse_nextest_junit(project_path: String) -> Result<NextestResults, String> {
+    let junit_path = PathBuf::from(&project_path)
+        .join("target")
+        .join("nextest")
+        .join("default")
+        .join("junit.xml");
+
+    if !junit_path.exists() {
+        return Err("JUnit XML not found. Run tests with nextest first.".to_string());
+    }
+
+    let content = fs::read_to_string(&junit_path).map_err(|e| e.to_string())?;
+    parse_junit_xml(&content)
+}
+
+fn parse_junit_xml(content: &str) -> Result<NextestResults, String> {
+    let mut suites = Vec::new();
+    let mut total_tests = 0u32;
+    let mut total_passed = 0u32;
+    let mut total_failed = 0u32;
+    let mut total_skipped = 0u32;
+    let mut total_time = 0.0f64;
+
+    // Simple XML parsing - look for testsuite and testcase elements
+    // This is a basic parser; for production, consider using quick-xml crate
+    let lines: Vec<&str> = content.lines().collect();
+    let mut current_suite: Option<TestSuiteResult> = None;
+
+    for line in &lines {
+        let trimmed = line.trim();
+
+        // Parse testsuite element
+        if trimmed.starts_with("<testsuite ") {
+            let name = extract_xml_attr(trimmed, "name").unwrap_or_default();
+            let tests = extract_xml_attr(trimmed, "tests")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let failures = extract_xml_attr(trimmed, "failures")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let errors = extract_xml_attr(trimmed, "errors")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let skipped = extract_xml_attr(trimmed, "skipped")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let time_seconds = extract_xml_attr(trimmed, "time")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+
+            current_suite = Some(TestSuiteResult {
+                name,
+                tests,
+                failures,
+                errors,
+                skipped,
+                time_seconds,
+                test_cases: Vec::new(),
+            });
+        }
+
+        // Parse testcase element
+        if trimmed.starts_with("<testcase ") {
+            if let Some(ref mut suite) = current_suite {
+                let name = extract_xml_attr(trimmed, "name").unwrap_or_default();
+                let classname = extract_xml_attr(trimmed, "classname").unwrap_or_default();
+                let time_seconds = extract_xml_attr(trimmed, "time")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
+
+                // Determine status - check if line ends with /> (passed) or has children
+                let status = if trimmed.ends_with("/>") {
+                    "passed".to_string()
+                } else {
+                    // Will be updated if we find failure/skipped elements
+                    "passed".to_string()
+                };
+
+                suite.test_cases.push(TestResult {
+                    name,
+                    classname,
+                    time_seconds,
+                    status,
+                    failure_message: None,
+                });
+            }
+        }
+
+        // Parse failure element
+        if trimmed.starts_with("<failure") {
+            if let Some(ref mut suite) = current_suite {
+                if let Some(test_case) = suite.test_cases.last_mut() {
+                    test_case.status = "failed".to_string();
+                    test_case.failure_message = extract_xml_attr(trimmed, "message");
+                }
+            }
+        }
+
+        // Parse skipped element
+        if trimmed.starts_with("<skipped") {
+            if let Some(ref mut suite) = current_suite {
+                if let Some(test_case) = suite.test_cases.last_mut() {
+                    test_case.status = "skipped".to_string();
+                }
+            }
+        }
+
+        // End of testsuite
+        if trimmed == "</testsuite>" {
+            if let Some(suite) = current_suite.take() {
+                total_tests += suite.tests;
+                total_failed += suite.failures + suite.errors;
+                total_skipped += suite.skipped;
+                total_passed += suite.tests.saturating_sub(suite.failures + suite.errors + suite.skipped);
+                total_time += suite.time_seconds;
+                suites.push(suite);
+            }
+        }
+    }
+
+    Ok(NextestResults {
+        suites,
+        total_tests,
+        total_passed,
+        total_failed,
+        total_skipped,
+        total_time_seconds: total_time,
+    })
+}
+
+fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
+    let pattern = format!("{}=\"", attr);
+    if let Some(start) = line.find(&pattern) {
+        let value_start = start + pattern.len();
+        if let Some(end) = line[value_start..].find('"') {
+            return Some(line[value_start..value_start + end].to_string());
+        }
+    }
+    None
+}
+
+// ============ GitHub Actions Detection ============
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GithubActionsInfo {
+    pub has_workflows: bool,
+    pub workflow_files: Vec<String>,
+    pub github_url: Option<String>,
+    pub actions_url: Option<String>,
+}
+
+#[tauri::command]
+pub fn detect_github_actions(project_path: String) -> GithubActionsInfo {
+    let workflows_dir = PathBuf::from(&project_path).join(".github").join("workflows");
+    let mut workflow_files = Vec::new();
+
+    if workflows_dir.exists() && workflows_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&workflows_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext == "yml" || ext == "yaml" {
+                            if let Some(name) = path.file_name() {
+                                workflow_files.push(name.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Get GitHub URL from git remote
+    let github_url = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&project_path)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // Convert SSH URL to HTTPS if needed
+                if url.starts_with("git@github.com:") {
+                    Some(url.replace("git@github.com:", "https://github.com/").trim_end_matches(".git").to_string())
+                } else if url.starts_with("https://github.com/") {
+                    Some(url.trim_end_matches(".git").to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+    let actions_url = github_url.as_ref().map(|url| format!("{}/actions", url));
+
+    GithubActionsInfo {
+        has_workflows: !workflow_files.is_empty(),
+        workflow_files,
+        github_url,
+        actions_url,
     }
 }
