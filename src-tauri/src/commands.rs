@@ -2210,14 +2210,8 @@ pub struct CargoFeatures {
     pub default_features: Vec<String>,
 }
 
-#[tauri::command]
-pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String> {
-    let path = PathBuf::from(&project_path).join("Cargo.toml");
-    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let table: toml::Table = content
-        .parse()
-        .map_err(|e: toml::de::Error| e.to_string())?;
-
+/// Parse Cargo.toml features table and return structured features info
+fn parse_cargo_features_toml(table: &toml::Table) -> CargoFeatures {
     let mut features = Vec::new();
     let mut default_features = Vec::new();
 
@@ -2254,10 +2248,21 @@ pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String>
     // Sort features alphabetically
     features.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok(CargoFeatures {
+    CargoFeatures {
         features,
         default_features,
-    })
+    }
+}
+
+#[tauri::command]
+pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String> {
+    let path = PathBuf::from(&project_path).join("Cargo.toml");
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let table: toml::Table = content
+        .parse()
+        .map_err(|e: toml::de::Error| e.to_string())?;
+
+    Ok(parse_cargo_features_toml(&table))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2356,6 +2361,25 @@ pub struct MsrvInfo {
     pub edition: Option<String>,
 }
 
+/// Parse MSRV (Minimum Supported Rust Version) info from Cargo.toml table
+fn parse_msrv_toml(table: &toml::Table) -> MsrvInfo {
+    let package = table.get("package").and_then(|p| p.as_table());
+    MsrvInfo {
+        msrv: package
+            .and_then(|p| p.get("rust-version"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        rust_version: package
+            .and_then(|p| p.get("rust-version"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        edition: package
+            .and_then(|p| p.get("edition"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
+    }
+}
+
 #[tauri::command]
 pub fn get_msrv(project_path: String) -> MsrvInfo {
     let path = PathBuf::from(&project_path).join("Cargo.toml");
@@ -2363,23 +2387,7 @@ pub fn get_msrv(project_path: String) -> MsrvInfo {
 
     content
         .and_then(|c| c.parse::<toml::Table>().ok())
-        .map(|table| {
-            let package = table.get("package").and_then(|p| p.as_table());
-            MsrvInfo {
-                msrv: package
-                    .and_then(|p| p.get("rust-version"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                rust_version: package
-                    .and_then(|p| p.get("rust-version"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                edition: package
-                    .and_then(|p| p.get("edition"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-            }
-        })
+        .map(|table| parse_msrv_toml(&table))
         .unwrap_or(MsrvInfo {
             msrv: None,
             rust_version: None,
@@ -4496,5 +4504,138 @@ path = "../other-crate"
         assert_eq!(toolchains.len(), 2);
         assert!(default.is_none());
         assert!(active.is_none());
+    }
+
+    // ============ Cargo Features Parser Tests ============
+
+    #[test]
+    fn test_parse_cargo_features_toml_basic() {
+        let toml_str = r#"
+[package]
+name = "test-crate"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+full = ["serde", "async"]
+async = []
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let features = parse_cargo_features_toml(&table);
+
+        assert_eq!(features.default_features, vec!["serde"]);
+        assert_eq!(features.features.len(), 3);
+
+        // Features should be sorted alphabetically
+        assert_eq!(features.features[0].name, "async");
+        assert_eq!(features.features[1].name, "full");
+        assert_eq!(features.features[2].name, "serde");
+
+        // Check is_default flag
+        assert!(!features.features[0].is_default); // async
+        assert!(!features.features[1].is_default); // full
+        assert!(features.features[2].is_default); // serde
+    }
+
+    #[test]
+    fn test_parse_cargo_features_toml_no_features() {
+        let toml_str = r#"
+[package]
+name = "test-crate"
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let features = parse_cargo_features_toml(&table);
+
+        assert!(features.features.is_empty());
+        assert!(features.default_features.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_features_toml_no_default() {
+        let toml_str = r#"
+[features]
+serde = []
+async = []
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let features = parse_cargo_features_toml(&table);
+
+        assert!(features.default_features.is_empty());
+        assert_eq!(features.features.len(), 2);
+        assert!(!features.features[0].is_default);
+        assert!(!features.features[1].is_default);
+    }
+
+    #[test]
+    fn test_parse_cargo_features_toml_with_dependencies() {
+        let toml_str = r#"
+[features]
+full = ["serde", "tokio", "async-std"]
+minimal = []
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let features = parse_cargo_features_toml(&table);
+
+        let full_feature = features.features.iter().find(|f| f.name == "full").unwrap();
+        assert_eq!(full_feature.dependencies.len(), 3);
+        assert!(full_feature.dependencies.contains(&"serde".to_string()));
+        assert!(full_feature.dependencies.contains(&"tokio".to_string()));
+    }
+
+    // ============ MSRV Parser Tests ============
+
+    #[test]
+    fn test_parse_msrv_toml_full() {
+        let toml_str = r#"
+[package]
+name = "test-crate"
+rust-version = "1.70.0"
+edition = "2021"
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let msrv = parse_msrv_toml(&table);
+
+        assert_eq!(msrv.msrv, Some("1.70.0".to_string()));
+        assert_eq!(msrv.rust_version, Some("1.70.0".to_string()));
+        assert_eq!(msrv.edition, Some("2021".to_string()));
+    }
+
+    #[test]
+    fn test_parse_msrv_toml_no_rust_version() {
+        let toml_str = r#"
+[package]
+name = "test-crate"
+edition = "2018"
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let msrv = parse_msrv_toml(&table);
+
+        assert!(msrv.msrv.is_none());
+        assert!(msrv.rust_version.is_none());
+        assert_eq!(msrv.edition, Some("2018".to_string()));
+    }
+
+    #[test]
+    fn test_parse_msrv_toml_no_package() {
+        let toml_str = r#"
+[workspace]
+members = ["crate-a", "crate-b"]
+"#;
+        let table: toml::Table = toml_str.parse().unwrap();
+        let msrv = parse_msrv_toml(&table);
+
+        assert!(msrv.msrv.is_none());
+        assert!(msrv.rust_version.is_none());
+        assert!(msrv.edition.is_none());
+    }
+
+    #[test]
+    fn test_parse_msrv_toml_empty() {
+        let table = toml::Table::new();
+        let msrv = parse_msrv_toml(&table);
+
+        assert!(msrv.msrv.is_none());
+        assert!(msrv.rust_version.is_none());
+        assert!(msrv.edition.is_none());
     }
 }
