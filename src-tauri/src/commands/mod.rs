@@ -1,3 +1,7 @@
+//! Command implementations for the Rust Helper application
+//!
+//! This module contains all Tauri commands exposed to the frontend.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -8,16 +12,51 @@ use std::time::SystemTime;
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
-// Import parsers from the new parsers module
+// Import parsers
 use crate::parsers::{
     parse_brew_info_json, parse_cargo_audit_json, parse_cargo_features_toml,
     parse_cargo_license_json, parse_cargo_outdated_json, parse_junit_xml, parse_msrv_toml,
     parse_rustc_version, parse_rustup_toolchain_list,
 };
-// Re-export parser types that are used in command return types
+
+// Re-export parser types used in command return types
 pub use crate::parsers::json::{AuditWarning, LicenseInfo, OutdatedDep, Vulnerability};
 pub use crate::parsers::toml::{CargoFeatures, MsrvInfo};
 pub use crate::parsers::xml::NextestResults;
+
+// ============ Configuration Types ============
+// These must be defined before the config module so it can import them
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppConfig {
+    pub favorites: Vec<String>,
+    pub hidden: Vec<String>,
+    pub scan_root: Option<String>,
+    pub recent_projects: Vec<String>,
+    pub preferred_ide: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScanCache {
+    pub outdated_results: Option<Vec<OutdatedResult>>,
+    pub outdated_timestamp: Option<u64>,
+    pub audit_results: Option<Vec<AuditResult>>,
+    pub audit_timestamp: Option<u64>,
+    pub dep_analysis: Option<DepAnalysis>,
+    pub dep_analysis_timestamp: Option<u64>,
+    pub toolchain_analysis: Option<ToolchainAnalysis>,
+    pub toolchain_timestamp: Option<u64>,
+    pub license_analysis: Option<LicenseAnalysis>,
+    pub license_timestamp: Option<u64>,
+}
+
+// Config submodule (after types are defined)
+pub mod config;
+
+// Import config functions from the config submodule
+use config::{get_current_timestamp, load_cache, load_config, save_cache, save_config};
+
+// ============ Project Types ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
@@ -47,93 +86,7 @@ struct Workspace {
     members: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AppConfig {
-    pub favorites: Vec<String>,
-    pub hidden: Vec<String>,
-    pub scan_root: Option<String>,
-    pub recent_projects: Vec<String>,
-    pub preferred_ide: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ScanCache {
-    pub outdated_results: Option<Vec<OutdatedResult>>,
-    pub outdated_timestamp: Option<u64>,
-    pub audit_results: Option<Vec<AuditResult>>,
-    pub audit_timestamp: Option<u64>,
-    pub dep_analysis: Option<DepAnalysis>,
-    pub dep_analysis_timestamp: Option<u64>,
-    pub toolchain_analysis: Option<ToolchainAnalysis>,
-    pub toolchain_timestamp: Option<u64>,
-    pub license_analysis: Option<LicenseAnalysis>,
-    pub license_timestamp: Option<u64>,
-}
-
-fn get_config_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("rust-helper")
-        .join("config.json")
-}
-
-fn get_cache_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("rust-helper")
-        .join("cache.json")
-}
-
-fn load_cache() -> ScanCache {
-    let path = get_cache_path();
-    if path.exists() {
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    } else {
-        ScanCache::default()
-    }
-}
-
-fn save_cache(cache: &ScanCache) -> Result<(), String> {
-    let path = get_cache_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn get_current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn load_config() -> AppConfig {
-    let path = get_config_path();
-    if path.exists() {
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    } else {
-        AppConfig::default()
-    }
-}
-
-fn save_config(config: &AppConfig) -> Result<(), String> {
-    let path = get_config_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())?;
-    Ok(())
-}
+// Config functions are imported from config module
 
 fn get_dir_size(path: &Path) -> u64 {
     if !path.exists() {
@@ -3334,31 +3287,7 @@ mod tests {
         assert!(root.starts_with('/') || root.contains(':'));
     }
 
-    #[test]
-    fn test_get_config_path() {
-        let path = get_config_path();
-        assert!(path.to_string_lossy().contains("rust-helper"));
-        assert!(path.to_string_lossy().contains("config.json"));
-    }
-
-    #[test]
-    fn test_get_cache_path() {
-        let path = get_cache_path();
-        assert!(path.to_string_lossy().contains("rust-helper"));
-        assert!(path.to_string_lossy().contains("cache.json"));
-    }
-
-    // ============ Timestamp Tests ============
-
-    #[test]
-    fn test_get_current_timestamp() {
-        let ts1 = get_current_timestamp();
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        let ts2 = get_current_timestamp();
-        assert!(ts2 >= ts1);
-        // Should be a reasonable Unix timestamp (after year 2020)
-        assert!(ts1 > 1577836800);
-    }
+    // Config path and timestamp tests are in config.rs
 
     // ============ Directory Size Tests ============
 
