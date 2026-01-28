@@ -1767,7 +1767,7 @@ pub fn check_required_tools() -> Vec<ToolStatus> {
             name: "cargo-nextest".to_string(),
             command: "nextest".to_string(),
             installed: check_tool_installed("cargo", "nextest"),
-            install_cmd: "cargo install cargo-nextest".to_string(),
+            install_cmd: "cargo install --locked cargo-nextest".to_string(),
             description: "Next-generation test runner with JUnit output".to_string(),
         },
     ]
