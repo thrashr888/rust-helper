@@ -8,6 +8,17 @@ use std::time::SystemTime;
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
+// Import parsers from the new parsers module
+use crate::parsers::{
+    parse_brew_info_json, parse_cargo_audit_json, parse_cargo_features_toml,
+    parse_cargo_license_json, parse_cargo_outdated_json, parse_junit_xml, parse_msrv_toml,
+    parse_rustc_version, parse_rustup_toolchain_list,
+};
+// Re-export parser types that are used in command return types
+pub use crate::parsers::json::{AuditWarning, LicenseInfo, OutdatedDep, Vulnerability};
+pub use crate::parsers::toml::{CargoFeatures, MsrvInfo};
+pub use crate::parsers::xml::NextestResults;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
@@ -465,51 +476,12 @@ pub fn clean_projects(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutdatedDep {
-    pub name: String,
-    pub current: String,
-    pub latest: String,
-    pub kind: String, // "Normal", "Development", "Build"
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutdatedResult {
     pub project_path: String,
     pub project_name: String,
     pub dependencies: Vec<OutdatedDep>,
     pub success: bool,
     pub error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoOutdatedOutput {
-    dependencies: Vec<CargoOutdatedDep>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoOutdatedDep {
-    name: String,
-    project: String,
-    latest: String,
-    kind: Option<String>,
-}
-
-/// Parse cargo outdated JSON output and return list of outdated dependencies
-fn parse_cargo_outdated_json(json_str: &str) -> Result<Vec<OutdatedDep>, String> {
-    let parsed: CargoOutdatedOutput =
-        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    Ok(parsed
-        .dependencies
-        .into_iter()
-        .filter(|d| d.project != d.latest) // Only include outdated ones
-        .map(|d| OutdatedDep {
-            name: d.name,
-            current: d.project,
-            latest: d.latest,
-            kind: d.kind.unwrap_or_else(|| "Normal".to_string()),
-        })
-        .collect())
 }
 
 #[tauri::command]
@@ -610,28 +582,6 @@ pub fn set_preferred_ide(ide_command: String) -> Result<(), String> {
 // ============ Security Audit ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Vulnerability {
-    pub id: String,
-    pub package: String,
-    pub version: String,
-    pub title: String,
-    pub description: String,
-    pub severity: String,
-    pub url: Option<String>,
-    pub patched_versions: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditWarning {
-    pub kind: String,
-    pub package: String,
-    pub version: String,
-    pub title: String,
-    pub advisory_id: String,
-    pub url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditResult {
     pub project_path: String,
     pub project_name: String,
@@ -639,121 +589,6 @@ pub struct AuditResult {
     pub warnings: Vec<AuditWarning>,
     pub success: bool,
     pub error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditOutput {
-    vulnerabilities: CargoAuditVulns,
-    warnings: Option<CargoAuditWarnings>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct CargoAuditVulns {
-    list: Vec<CargoAuditVuln>,
-    count: usize,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditVuln {
-    advisory: CargoAuditAdvisory,
-    package: CargoAuditPackage,
-    versions: Option<CargoAuditVersions>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditAdvisory {
-    id: String,
-    title: String,
-    description: String,
-    url: Option<String>,
-    cvss: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditPackage {
-    name: String,
-    version: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditVersions {
-    patched: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditWarnings {
-    unmaintained: Option<Vec<CargoAuditWarning>>,
-    unsound: Option<Vec<CargoAuditWarning>>,
-    yanked: Option<Vec<CargoAuditWarning>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CargoAuditWarning {
-    kind: String,
-    package: CargoAuditPackage,
-    advisory: CargoAuditAdvisory,
-}
-
-/// Parse cargo-audit JSON output into vulnerabilities and warnings.
-/// This is extracted to enable unit testing without running cargo audit.
-fn parse_cargo_audit_json(
-    json_str: &str,
-) -> Result<(Vec<Vulnerability>, Vec<AuditWarning>), String> {
-    let parsed: CargoAuditOutput =
-        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    let vulnerabilities: Vec<Vulnerability> = parsed
-        .vulnerabilities
-        .list
-        .into_iter()
-        .map(|v| Vulnerability {
-            id: v.advisory.id,
-            package: v.package.name,
-            version: v.package.version,
-            title: v.advisory.title,
-            description: v.advisory.description,
-            severity: v.advisory.cvss.unwrap_or_else(|| "unknown".to_string()),
-            url: v.advisory.url,
-            patched_versions: v.versions.map(|v| v.patched).unwrap_or_default(),
-        })
-        .collect();
-
-    let mut warnings: Vec<AuditWarning> = Vec::new();
-    if let Some(w) = parsed.warnings {
-        for warn in w.unmaintained.unwrap_or_default() {
-            warnings.push(AuditWarning {
-                kind: warn.kind,
-                package: warn.package.name,
-                version: warn.package.version,
-                title: warn.advisory.title,
-                advisory_id: warn.advisory.id,
-                url: warn.advisory.url,
-            });
-        }
-        for warn in w.unsound.unwrap_or_default() {
-            warnings.push(AuditWarning {
-                kind: warn.kind,
-                package: warn.package.name,
-                version: warn.package.version,
-                title: warn.advisory.title,
-                advisory_id: warn.advisory.id,
-                url: warn.advisory.url,
-            });
-        }
-        for warn in w.yanked.unwrap_or_default() {
-            warnings.push(AuditWarning {
-                kind: warn.kind,
-                package: warn.package.name,
-                version: warn.package.version,
-                title: warn.advisory.title,
-                advisory_id: warn.advisory.id,
-                url: warn.advisory.url,
-            });
-        }
-    }
-
-    Ok((vulnerabilities, warnings))
 }
 
 #[tauri::command]
@@ -1320,15 +1155,6 @@ pub async fn analyze_dependencies(project_paths: Vec<String>) -> DepAnalysis {
 // ============ License Analysis ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LicenseInfo {
-    pub name: String,
-    pub version: String,
-    pub license: String,
-    pub authors: Option<String>,
-    pub repository: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LicenseGroup {
     pub license: String,
     pub packages: Vec<String>,
@@ -1352,15 +1178,6 @@ pub struct LicenseAnalysis {
     pub problematic_count: usize,
 }
 
-#[derive(Debug, Deserialize)]
-struct CargoLicenseEntry {
-    name: String,
-    version: String,
-    authors: Option<String>,
-    repository: Option<String>,
-    license: Option<String>,
-}
-
 // Licenses that may have problematic requirements for commercial use
 const PROBLEMATIC_LICENSES: &[&str] = &[
     "GPL",
@@ -1380,24 +1197,6 @@ fn is_problematic_license(license: &str) -> bool {
     PROBLEMATIC_LICENSES
         .iter()
         .any(|p| upper.contains(&p.to_uppercase()))
-}
-
-/// Parse cargo-license JSON output into license info.
-/// This is extracted to enable unit testing without running cargo license.
-fn parse_cargo_license_json(json_str: &str) -> Result<Vec<LicenseInfo>, String> {
-    let parsed: Vec<CargoLicenseEntry> =
-        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    Ok(parsed
-        .into_iter()
-        .map(|e| LicenseInfo {
-            name: e.name,
-            version: e.version,
-            license: e.license.unwrap_or_else(|| "Unknown".to_string()),
-            authors: e.authors,
-            repository: e.repository,
-        })
-        .collect())
 }
 
 #[tauri::command]
@@ -2197,63 +1996,6 @@ pub async fn generate_docs(project_path: String) -> DocResult {
 
 // === New Features ===
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CargoFeature {
-    pub name: String,
-    pub dependencies: Vec<String>,
-    pub is_default: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CargoFeatures {
-    pub features: Vec<CargoFeature>,
-    pub default_features: Vec<String>,
-}
-
-/// Parse Cargo.toml features table and return structured features info
-fn parse_cargo_features_toml(table: &toml::Table) -> CargoFeatures {
-    let mut features = Vec::new();
-    let mut default_features = Vec::new();
-
-    if let Some(features_table) = table.get("features").and_then(|f| f.as_table()) {
-        // Get default features first
-        if let Some(default) = features_table.get("default").and_then(|d| d.as_array()) {
-            default_features = default
-                .iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect();
-        }
-
-        for (name, deps) in features_table {
-            if name == "default" {
-                continue;
-            }
-            let dependencies = deps
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            features.push(CargoFeature {
-                name: name.clone(),
-                dependencies,
-                is_default: default_features.contains(name),
-            });
-        }
-    }
-
-    // Sort features alphabetically
-    features.sort_by(|a, b| a.name.cmp(&b.name));
-
-    CargoFeatures {
-        features,
-        default_features,
-    }
-}
-
 #[tauri::command]
 pub fn get_cargo_features(project_path: String) -> Result<CargoFeatures, String> {
     let path = PathBuf::from(&project_path).join("Cargo.toml");
@@ -2354,32 +2096,6 @@ pub fn get_binary_sizes(project_path: String) -> BinarySizes {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MsrvInfo {
-    pub msrv: Option<String>,
-    pub rust_version: Option<String>,
-    pub edition: Option<String>,
-}
-
-/// Parse MSRV (Minimum Supported Rust Version) info from Cargo.toml table
-fn parse_msrv_toml(table: &toml::Table) -> MsrvInfo {
-    let package = table.get("package").and_then(|p| p.as_table());
-    MsrvInfo {
-        msrv: package
-            .and_then(|p| p.get("rust-version"))
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        rust_version: package
-            .and_then(|p| p.get("rust-version"))
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        edition: package
-            .and_then(|p| p.get("edition"))
-            .and_then(|v| v.as_str())
-            .map(String::from),
-    }
-}
-
 #[tauri::command]
 pub fn get_msrv(project_path: String) -> MsrvInfo {
     let path = PathBuf::from(&project_path).join("Cargo.toml");
@@ -2388,11 +2104,7 @@ pub fn get_msrv(project_path: String) -> MsrvInfo {
     content
         .and_then(|c| c.parse::<toml::Table>().ok())
         .map(|table| parse_msrv_toml(&table))
-        .unwrap_or(MsrvInfo {
-            msrv: None,
-            rust_version: None,
-            edition: None,
-        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2823,35 +2535,6 @@ pub struct RustVersionInfo {
     pub active_toolchain: Option<String>,
 }
 
-/// Parse rustup toolchain list output and return installed toolchains with default/active info
-fn parse_rustup_toolchain_list(output: &str) -> (Vec<String>, Option<String>, Option<String>) {
-    let mut installed_toolchains = Vec::new();
-    let mut default_toolchain = None;
-    let mut active_toolchain = None;
-
-    for line in output.lines() {
-        let is_default = line.contains("(default)");
-        let is_active = line.contains("(active)") || line.contains("(default)");
-        let name = line
-            .replace("(default)", "")
-            .replace("(active)", "")
-            .trim()
-            .to_string();
-
-        if !name.is_empty() {
-            if is_default {
-                default_toolchain = Some(name.clone());
-            }
-            if is_active {
-                active_toolchain = Some(name.clone());
-            }
-            installed_toolchains.push(name);
-        }
-    }
-
-    (installed_toolchains, default_toolchain, active_toolchain)
-}
-
 #[tauri::command]
 pub fn get_rust_version_info() -> RustVersionInfo {
     // Get rustc version
@@ -3102,49 +2785,6 @@ pub struct HomebrewStatus {
     pub latest_version: Option<String>,
     pub update_available: bool,
     pub formula_name: Option<String>,
-}
-
-/// Parsed version info from brew info --json=v2 output
-#[derive(Debug, Clone, Default)]
-pub struct BrewVersionInfo {
-    pub installed_version: Option<String>,
-    pub latest_version: Option<String>,
-}
-
-/// Parse brew info --json=v2 output to extract version information
-fn parse_brew_info_json(json_str: &str) -> Option<BrewVersionInfo> {
-    let json: serde_json::Value = serde_json::from_str(json_str).ok()?;
-
-    let formula = json
-        .get("formulae")
-        .and_then(|f| f.as_array())
-        .and_then(|arr| arr.first())?;
-
-    let installed_version = formula
-        .get("installed")
-        .and_then(|i| i.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("version"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    let latest_version = formula
-        .get("versions")
-        .and_then(|v| v.get("stable"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    Some(BrewVersionInfo {
-        installed_version,
-        latest_version,
-    })
-}
-
-/// Parse rustc --version output to extract version and check if homebrew
-fn parse_rustc_version(version_output: &str) -> (Option<String>, bool) {
-    let is_homebrew = version_output.contains("(Homebrew)");
-    let version = version_output.split_whitespace().nth(1).map(String::from);
-    (version, is_homebrew)
 }
 
 #[tauri::command]
@@ -3522,36 +3162,6 @@ pub async fn read_tarpaulin_results(project_path: String) -> Result<String, Stri
 
 // ============ Nextest & Test Results ============
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestResult {
-    pub name: String,
-    pub classname: String,
-    pub time_seconds: f64,
-    pub status: String, // "passed", "failed", "skipped"
-    pub failure_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TestSuiteResult {
-    pub name: String,
-    pub tests: u32,
-    pub failures: u32,
-    pub errors: u32,
-    pub skipped: u32,
-    pub time_seconds: f64,
-    pub test_cases: Vec<TestResult>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NextestResults {
-    pub suites: Vec<TestSuiteResult>,
-    pub total_tests: u32,
-    pub total_passed: u32,
-    pub total_failed: u32,
-    pub total_skipped: u32,
-    pub total_time_seconds: f64,
-}
-
 #[tauri::command]
 pub fn parse_nextest_junit(project_path: String) -> Result<NextestResults, String> {
     let junit_path = PathBuf::from(&project_path)
@@ -3566,143 +3176,6 @@ pub fn parse_nextest_junit(project_path: String) -> Result<NextestResults, Strin
 
     let content = fs::read_to_string(&junit_path).map_err(|e| e.to_string())?;
     parse_junit_xml(&content)
-}
-
-fn parse_junit_xml(content: &str) -> Result<NextestResults, String> {
-    let mut suites = Vec::new();
-    let mut total_tests = 0u32;
-    let mut total_passed = 0u32;
-    let mut total_failed = 0u32;
-    let mut total_skipped = 0u32;
-    let mut total_time = 0.0f64;
-
-    // Simple XML parsing - look for testsuite and testcase elements
-    // This is a basic parser; for production, consider using quick-xml crate
-    let lines: Vec<&str> = content.lines().collect();
-    let mut current_suite: Option<TestSuiteResult> = None;
-
-    for line in &lines {
-        let trimmed = line.trim();
-
-        // Parse testsuite element
-        if trimmed.starts_with("<testsuite ") {
-            let name = extract_xml_attr(trimmed, "name").unwrap_or_default();
-            let tests = extract_xml_attr(trimmed, "tests")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let failures = extract_xml_attr(trimmed, "failures")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let errors = extract_xml_attr(trimmed, "errors")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let skipped = extract_xml_attr(trimmed, "skipped")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let time_seconds = extract_xml_attr(trimmed, "time")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.0);
-
-            current_suite = Some(TestSuiteResult {
-                name,
-                tests,
-                failures,
-                errors,
-                skipped,
-                time_seconds,
-                test_cases: Vec::new(),
-            });
-        }
-
-        // Parse testcase element
-        if trimmed.starts_with("<testcase ") {
-            if let Some(ref mut suite) = current_suite {
-                let name = extract_xml_attr(trimmed, "name").unwrap_or_default();
-                let classname = extract_xml_attr(trimmed, "classname").unwrap_or_default();
-                let time_seconds = extract_xml_attr(trimmed, "time")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(0.0);
-
-                // Determine status - check if line ends with /> (passed) or has children
-                let status = if trimmed.ends_with("/>") {
-                    "passed".to_string()
-                } else {
-                    // Will be updated if we find failure/skipped elements
-                    "passed".to_string()
-                };
-
-                suite.test_cases.push(TestResult {
-                    name,
-                    classname,
-                    time_seconds,
-                    status,
-                    failure_message: None,
-                });
-            }
-        }
-
-        // Parse failure element
-        if trimmed.starts_with("<failure") {
-            if let Some(ref mut suite) = current_suite {
-                if let Some(test_case) = suite.test_cases.last_mut() {
-                    test_case.status = "failed".to_string();
-                    test_case.failure_message = extract_xml_attr(trimmed, "message");
-                }
-            }
-        }
-
-        // Parse skipped element
-        if trimmed.starts_with("<skipped") {
-            if let Some(ref mut suite) = current_suite {
-                if let Some(test_case) = suite.test_cases.last_mut() {
-                    test_case.status = "skipped".to_string();
-                }
-            }
-        }
-
-        // End of testsuite
-        if trimmed == "</testsuite>" {
-            if let Some(suite) = current_suite.take() {
-                total_tests += suite.tests;
-                total_failed += suite.failures + suite.errors;
-                total_skipped += suite.skipped;
-                total_passed += suite
-                    .tests
-                    .saturating_sub(suite.failures + suite.errors + suite.skipped);
-                total_time += suite.time_seconds;
-                suites.push(suite);
-            }
-        }
-    }
-
-    Ok(NextestResults {
-        suites,
-        total_tests,
-        total_passed,
-        total_failed,
-        total_skipped,
-        total_time_seconds: total_time,
-    })
-}
-
-fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
-    let pattern = format!("{}=\"", attr);
-    if let Some(start) = line.find(&pattern) {
-        let value_start = start + pattern.len();
-        if let Some(end) = line[value_start..].find('"') {
-            let raw_value = &line[value_start..value_start + end];
-            return Some(decode_xml_entities(raw_value));
-        }
-    }
-    None
-}
-
-fn decode_xml_entities(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
 }
 
 // ============ GitHub Actions Detection ============
@@ -3779,119 +3252,7 @@ pub fn detect_github_actions(project_path: String) -> GithubActionsInfo {
 mod tests {
     use super::*;
 
-    // ============ XML Parsing Tests ============
-
-    #[test]
-    fn test_extract_xml_attr_basic() {
-        let line = r#"<testcase name="test_foo" classname="my_crate" time="0.001">"#;
-        assert_eq!(extract_xml_attr(line, "name"), Some("test_foo".to_string()));
-        assert_eq!(
-            extract_xml_attr(line, "classname"),
-            Some("my_crate".to_string())
-        );
-        assert_eq!(extract_xml_attr(line, "time"), Some("0.001".to_string()));
-    }
-
-    #[test]
-    fn test_extract_xml_attr_missing() {
-        let line = r#"<testcase name="test_foo">"#;
-        assert_eq!(extract_xml_attr(line, "classname"), None);
-        assert_eq!(extract_xml_attr(line, "missing"), None);
-    }
-
-    #[test]
-    fn test_extract_xml_attr_empty_value() {
-        let line = r#"<testcase name="" classname="foo">"#;
-        assert_eq!(extract_xml_attr(line, "name"), Some("".to_string()));
-    }
-
-    #[test]
-    fn test_extract_xml_attr_decodes_entities() {
-        let line = r#"<failure message="test &apos;foo&apos; &amp; &lt;bar&gt;">"#;
-        assert_eq!(
-            extract_xml_attr(line, "message"),
-            Some("test 'foo' & <bar>".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_junit_xml_empty() {
-        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="nextest-run" tests="0" failures="0" errors="0">
-</testsuites>"#;
-
-        let result = parse_junit_xml(xml).unwrap();
-        assert_eq!(result.total_tests, 0);
-        assert_eq!(result.total_passed, 0);
-        assert_eq!(result.total_failed, 0);
-        assert!(result.suites.is_empty());
-    }
-
-    #[test]
-    fn test_parse_junit_xml_passing_tests() {
-        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="nextest-run" tests="2" failures="0" errors="0">
-  <testsuite name="my_crate" tests="2" failures="0" errors="0" skipped="0" time="0.005">
-    <testcase name="test_one" classname="my_crate::tests" time="0.002" />
-    <testcase name="test_two" classname="my_crate::tests" time="0.003" />
-  </testsuite>
-</testsuites>"#;
-
-        let result = parse_junit_xml(xml).unwrap();
-        assert_eq!(result.total_tests, 2);
-        assert_eq!(result.total_passed, 2);
-        assert_eq!(result.total_failed, 0);
-        assert_eq!(result.suites.len(), 1);
-        assert_eq!(result.suites[0].test_cases.len(), 2);
-        assert_eq!(result.suites[0].test_cases[0].name, "test_one");
-        assert_eq!(result.suites[0].test_cases[0].status, "passed");
-    }
-
-    #[test]
-    fn test_parse_junit_xml_with_failures() {
-        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="nextest-run" tests="2" failures="1" errors="0">
-  <testsuite name="my_crate" tests="2" failures="1" errors="0" skipped="0" time="0.010">
-    <testcase name="test_pass" classname="my_crate" time="0.002" />
-    <testcase name="test_fail" classname="my_crate" time="0.008">
-      <failure message="assertion failed">Expected 1, got 2</failure>
-    </testcase>
-  </testsuite>
-</testsuites>"#;
-
-        let result = parse_junit_xml(xml).unwrap();
-        assert_eq!(result.total_tests, 2);
-        assert_eq!(result.total_passed, 1);
-        assert_eq!(result.total_failed, 1);
-
-        let failed_test = &result.suites[0].test_cases[1];
-        assert_eq!(failed_test.name, "test_fail");
-        assert_eq!(failed_test.status, "failed");
-        assert_eq!(
-            failed_test.failure_message,
-            Some("assertion failed".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_junit_xml_with_skipped() {
-        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="nextest-run" tests="2" failures="0" errors="0">
-  <testsuite name="my_crate" tests="2" failures="0" errors="0" skipped="1" time="0.001">
-    <testcase name="test_run" classname="my_crate" time="0.001" />
-    <testcase name="test_skip" classname="my_crate" time="0.000">
-      <skipped />
-    </testcase>
-  </testsuite>
-</testsuites>"#;
-
-        let result = parse_junit_xml(xml).unwrap();
-        assert_eq!(result.total_tests, 2);
-        assert_eq!(result.total_skipped, 1);
-
-        let skipped_test = &result.suites[0].test_cases[1];
-        assert_eq!(skipped_test.status, "skipped");
-    }
+    // Note: XML/JUnit parsing tests moved to parsers/xml.rs
 
     // ============ License Detection Tests ============
 
@@ -4014,35 +3375,7 @@ mod tests {
         assert!(size > 0);
     }
 
-    // ============ XML Entity Decoding Tests ============
-
-    #[test]
-    fn test_decode_xml_entities_all_entities() {
-        assert_eq!(decode_xml_entities("&amp;"), "&");
-        assert_eq!(decode_xml_entities("&lt;"), "<");
-        assert_eq!(decode_xml_entities("&gt;"), ">");
-        assert_eq!(decode_xml_entities("&quot;"), "\"");
-        assert_eq!(decode_xml_entities("&apos;"), "'");
-    }
-
-    #[test]
-    fn test_decode_xml_entities_mixed() {
-        let input = "test &apos;value&apos; with &lt;tags&gt; &amp; \"quotes\"";
-        let expected = "test 'value' with <tags> & \"quotes\"";
-        assert_eq!(decode_xml_entities(input), expected);
-    }
-
-    #[test]
-    fn test_decode_xml_entities_no_entities() {
-        let input = "plain text without entities";
-        assert_eq!(decode_xml_entities(input), input);
-    }
-
-    #[test]
-    fn test_decode_xml_entities_multiple_same() {
-        let input = "&apos;&apos;&apos;";
-        assert_eq!(decode_xml_entities(input), "'''");
-    }
+    // Note: XML entity decoding tests moved to parsers/xml.rs
 
     // ============ Cargo TOML Parsing Tests ============
 
@@ -4088,40 +3421,7 @@ serde = "1.0"
         assert!(cargo.package.is_none());
     }
 
-    // ============ Cargo Outdated JSON Parsing Tests ============
-
-    #[test]
-    fn test_cargo_outdated_json_parsing() {
-        let json = r#"{
-            "dependencies": [
-                {"name": "serde", "project": "1.0.0", "latest": "1.0.200", "kind": "Normal"},
-                {"name": "tokio", "project": "1.35.0", "latest": "1.36.0", "kind": "Normal"}
-            ]
-        }"#;
-        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.dependencies.len(), 2);
-        assert_eq!(parsed.dependencies[0].name, "serde");
-        assert_eq!(parsed.dependencies[0].project, "1.0.0");
-        assert_eq!(parsed.dependencies[0].latest, "1.0.200");
-    }
-
-    #[test]
-    fn test_cargo_outdated_json_empty() {
-        let json = r#"{"dependencies": []}"#;
-        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.dependencies.len(), 0);
-    }
-
-    #[test]
-    fn test_cargo_outdated_json_optional_kind() {
-        let json = r#"{
-            "dependencies": [
-                {"name": "serde", "project": "1.0.0", "latest": "1.0.200"}
-            ]
-        }"#;
-        let parsed: CargoOutdatedOutput = serde_json::from_str(json).unwrap();
-        assert!(parsed.dependencies[0].kind.is_none());
-    }
+    // Note: Cargo Outdated JSON parsing tests moved to parsers/json.rs
 
     // ============ MSRV/Edition Parsing Tests ============
 

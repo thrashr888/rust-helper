@@ -1,4 +1,5 @@
 mod commands;
+mod parsers;
 
 use commands::{
     add_recent_project, analyze_bloat, analyze_dependencies, analyze_toolchains, check_all_audits,
