@@ -48,7 +48,7 @@ import type {
   BackgroundJob,
 } from "./types";
 import { formatBytes, formatTimeAgo, formatDuration } from "./utils/formatting";
-import { Sidebar, ProjectCard } from "./components";
+import { Sidebar, ProjectCard, GearSpinner } from "./components";
 
 hljs.registerLanguage("toml", toml);
 import {
@@ -65,7 +65,6 @@ import {
   Trash,
   CheckCircle,
   XCircle,
-  Spinner,
   ArrowUp,
   Warning,
   ArrowLeft,
@@ -1307,6 +1306,20 @@ function App() {
     setRunningCoverage(false);
   };
 
+  // Hide HTML splash when app is ready
+  useEffect(() => {
+    if (configLoaded) {
+      const splash = document.getElementById("splash");
+      if (splash) {
+        splash.style.display = "none";
+      }
+    }
+  }, [configLoaded]);
+
+  if (!configLoaded) {
+    return null; // HTML splash is already showing
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -1334,7 +1347,10 @@ function App() {
             </div>
 
             {scanning ? (
-              <div className="loading">Scanning for Rust projects...</div>
+              <div className="loading">
+                <img src="/icon.png" alt="" className="loading-icon" />
+                Scanning for Rust projects...
+              </div>
             ) : projects.length === 0 ? (
               <div className="empty-state">
                 <p>No Rust projects found</p>
@@ -1444,7 +1460,7 @@ function App() {
                   spellCheck={false}
                 />
                 {searching ? (
-                  <Spinner size={16} className="spinning" />
+                  <GearSpinner size={16} />
                 ) : (
                   <button
                     onClick={performGlobalSearch}
@@ -1636,7 +1652,7 @@ function App() {
                   >
                     {cleaningAll ? (
                       <>
-                        <Spinner size={16} className="spinning" />
+                        <GearSpinner size={16} />
                         Cleaning...
                       </>
                     ) : (
@@ -1653,7 +1669,7 @@ function App() {
                   >
                     {cleaningAllDebug ? (
                       <>
-                        <Spinner size={16} className="spinning" />
+                        <GearSpinner size={16} />
                         Cleaning Debug...
                       </>
                     ) : (
@@ -1704,7 +1720,7 @@ function App() {
                             )
                           ) : isCurrentlyCleaning ? (
                             <span className="cleanup-progress">
-                              <Spinner size={16} className="spinning" />
+                              <GearSpinner size={16} />
                               {isCleaningDebug
                                 ? "Cleaning debug..."
                                 : "Cleaning..."}
@@ -1767,7 +1783,7 @@ function App() {
               <button onClick={checkAllOutdated} disabled={checkingOutdated}>
                 {checkingOutdated ? (
                   <>
-                    <Spinner size={16} className="spinning" />
+                    <GearSpinner size={16} />
                     Checking...
                   </>
                 ) : (
@@ -1781,7 +1797,7 @@ function App() {
 
             {checkingOutdated ? (
               <div className="empty-state">
-                <Spinner size={24} className="spinning" />
+                <GearSpinner size={24} />
                 <p>Checking all projects for outdated dependencies...</p>
               </div>
             ) : outdatedResults.length === 0 ? (
@@ -1894,7 +1910,7 @@ function App() {
               <button onClick={checkAllAudits} disabled={checkingAudit}>
                 {checkingAudit ? (
                   <>
-                    <Spinner size={16} className="spinning" />
+                    <GearSpinner size={16} />
                     Auditing...
                   </>
                 ) : (
@@ -2062,7 +2078,7 @@ function App() {
               >
                 {analyzingToolchains ? (
                   <>
-                    <Spinner size={16} className="spinning" />
+                    <GearSpinner size={16} />
                     Analyzing...
                   </>
                 ) : (
@@ -2205,7 +2221,7 @@ function App() {
               <button onClick={analyzeDependencies} disabled={analyzingDeps}>
                 {analyzingDeps ? (
                   <>
-                    <Spinner size={16} className="spinning" />
+                    <GearSpinner size={16} />
                     Analyzing...
                   </>
                 ) : (
@@ -2329,7 +2345,7 @@ function App() {
               <button onClick={analyzeLicenses} disabled={analyzingLicenses}>
                 {analyzingLicenses ? (
                   <>
-                    <Spinner size={16} className="spinning" />
+                    <GearSpinner size={16} />
                     Scanning...
                   </>
                 ) : (
@@ -2732,7 +2748,7 @@ function App() {
                           title="Quickly check code for errors without producing binaries"
                         >
                           {runningCommand === "check" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Code size={16} />
                           )}
@@ -2745,7 +2761,7 @@ function App() {
                           title="Compile the project in debug mode"
                         >
                           {runningCommand === "build" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Wrench size={16} />
                           )}
@@ -2760,7 +2776,7 @@ function App() {
                           title="Compile with optimizations for release"
                         >
                           {runningCommand === "build" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Wrench size={16} />
                           )}
@@ -2773,7 +2789,7 @@ function App() {
                           title="Build and run the project"
                         >
                           {runningCommand === "run" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Play size={16} />
                           )}
@@ -2794,7 +2810,7 @@ function App() {
                           title="Check if code is formatted correctly without making changes"
                         >
                           {runningCommand === "fmt" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <FileCode size={16} />
                           )}
@@ -2807,7 +2823,7 @@ function App() {
                           title="Format code according to Rust style guidelines"
                         >
                           {runningCommand === "fmt" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <FileCode size={16} />
                           )}
@@ -2822,7 +2838,7 @@ function App() {
                           title="Run the Clippy linter to catch common mistakes and improve code"
                         >
                           {runningCommand === "clippy" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Warning size={16} />
                           )}
@@ -2841,7 +2857,7 @@ function App() {
                           title="Automatically fix Clippy warnings in your code"
                         >
                           {runningCommand === "clippy" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Warning size={16} />
                           )}
@@ -2860,7 +2876,7 @@ function App() {
                           title="Generate documentation for this project"
                         >
                           {runningCommand === "doc" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <FileCode size={16} />
                           )}
@@ -2875,7 +2891,7 @@ function App() {
                           title="Display the dependency tree for this project"
                         >
                           {runningCommand === "tree" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <Tree size={16} />
                           )}
@@ -2894,7 +2910,7 @@ function App() {
                           title="Update Cargo.lock to latest compatible dependency versions"
                         >
                           {runningCommand === "update" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <ArrowsClockwise size={16} />
                           )}
@@ -2907,7 +2923,7 @@ function App() {
                           title="Check dependencies for known security vulnerabilities"
                         >
                           {runningCommand === "audit" ? (
-                            <Spinner size={16} className="spinning" />
+                            <GearSpinner size={16} />
                           ) : (
                             <ShieldCheck size={16} />
                           )}
@@ -3001,7 +3017,7 @@ function App() {
                         <div className="command-output streaming-command">
                           <div className="command-output-header">
                             <span className="command-status running">
-                              <Spinner size={16} className="spinning" /> Running
+                              <GearSpinner size={16} /> Running
                             </span>
                             <span className="command-name">
                               cargo {runningCommand}
@@ -3187,7 +3203,7 @@ function App() {
                     title={isNextestAvailable() ? "Run tests with cargo-nextest" : "Run tests with cargo test"}
                   >
                     {runningCommand === "test" || runningCommand?.startsWith("nextest") ? (
-                      <Spinner size={16} className="spinning" />
+                      <GearSpinner size={16} />
                     ) : (
                       <Bug size={16} />
                     )}
@@ -3199,7 +3215,7 @@ function App() {
                     className="test-btn"
                   >
                     {runningCommand === "bench" ? (
-                      <Spinner size={16} className="spinning" />
+                      <GearSpinner size={16} />
                     ) : (
                       <Timer size={16} />
                     )}
@@ -3222,7 +3238,7 @@ function App() {
                     title="Run code coverage with cargo-tarpaulin"
                   >
                     {runningCommand === "tarpaulin" || runningCoverage ? (
-                      <Spinner size={16} className="spinning" />
+                      <GearSpinner size={16} />
                     ) : (
                       <Cpu size={16} />
                     )}
@@ -3344,7 +3360,7 @@ function App() {
                         <div className="command-output streaming-command">
                           <div className="command-output-header">
                             <span className="command-status running">
-                              <Spinner size={16} className="spinning" /> Running
+                              <GearSpinner size={16} /> Running
                             </span>
                             <span className="command-name">
                               cargo {runningCommand}
@@ -3579,7 +3595,7 @@ function App() {
                         >
                           {cleaning.has(selectedProject.path) ? (
                             <>
-                              <Spinner size={16} className="spinning" />{" "}
+                              <GearSpinner size={16} />{" "}
                               Cleaning...
                             </>
                           ) : (
@@ -3605,7 +3621,7 @@ function App() {
                         >
                           {cleaningDebug.has(selectedProject.path) ? (
                             <>
-                              <Spinner size={16} className="spinning" />{" "}
+                              <GearSpinner size={16} />{" "}
                               Cleaning Debug...
                             </>
                           ) : (
@@ -3662,7 +3678,7 @@ function App() {
                     >
                       {analyzingBloat ? (
                         <>
-                          <Spinner size={16} className="spinning" />{" "}
+                          <GearSpinner size={16} />{" "}
                           Analyzing...
                         </>
                       ) : (
@@ -3758,7 +3774,7 @@ function App() {
                   >
                     {checkingProjectOutdated ? (
                       <>
-                        <Spinner size={16} className="spinning" /> Checking...
+                        <GearSpinner size={16} /> Checking...
                       </>
                     ) : (
                       <>
@@ -3775,7 +3791,7 @@ function App() {
                   >
                     {runningCommand === "upgrade" ? (
                       <>
-                        <Spinner size={16} className="spinning" /> Upgrading...
+                        <GearSpinner size={16} /> Upgrading...
                       </>
                     ) : (
                       <>
@@ -3869,7 +3885,7 @@ function App() {
                                   title={`Upgrade ${dep.name} to ${dep.latest}`}
                                 >
                                   {upgradingPackage === dep.name ? (
-                                    <Spinner size={12} className="spinning" />
+                                    <GearSpinner size={12} />
                                   ) : (
                                     <ArrowUp size={12} />
                                   )}
@@ -3896,7 +3912,7 @@ function App() {
                   )
                 ) : checkingProjectOutdated ? (
                   <div className="empty-state">
-                    <Spinner size={24} className="spinning" />
+                    <GearSpinner size={24} />
                     <p>Checking for outdated dependencies...</p>
                   </div>
                 ) : (
@@ -3918,7 +3934,7 @@ function App() {
                   >
                     {checkingProjectAudit ? (
                       <>
-                        <Spinner size={16} className="spinning" /> Auditing...
+                        <GearSpinner size={16} /> Auditing...
                       </>
                     ) : (
                       <>
@@ -4020,7 +4036,7 @@ function App() {
                   >
                     {checkingProjectLicenses ? (
                       <>
-                        <Spinner size={16} className="spinning" /> Scanning...
+                        <GearSpinner size={16} /> Scanning...
                       </>
                     ) : (
                       <>
@@ -4088,7 +4104,7 @@ function App() {
                     className="toolbar-btn"
                   >
                     {loadingGitTags ? (
-                      <Spinner size={16} className="spinning" />
+                      <GearSpinner size={16} />
                     ) : (
                       <Tag size={16} />
                     )}
@@ -4154,7 +4170,7 @@ function App() {
                 )}
                 {loadingGitTags ? (
                   <div className="empty-state">
-                    <Spinner size={24} className="spinning" />
+                    <GearSpinner size={24} />
                     <p>Loading version history...</p>
                   </div>
                 ) : gitTags.length > 0 ? (
@@ -4217,7 +4233,7 @@ function App() {
               <div className="detail-tab-content">
                 {loadingCargoToml ? (
                   <div className="empty-state">
-                    <Spinner size={24} className="spinning" />
+                    <GearSpinner size={24} />
                     <p>Loading Cargo.toml...</p>
                   </div>
                 ) : cargoTomlContent ? (
@@ -4247,7 +4263,7 @@ function App() {
                   >
                     {generatingDocs ? (
                       <>
-                        <Spinner size={16} className="spinning" /> Generating...
+                        <GearSpinner size={16} /> Generating...
                       </>
                     ) : (
                       <>
@@ -4258,7 +4274,7 @@ function App() {
                 </div>
                 {generatingDocs ? (
                   <div className="empty-state">
-                    <Spinner size={24} className="spinning" />
+                    <GearSpinner size={24} />
                     <p>Generating documentation...</p>
                   </div>
                 ) : docPath ? (
@@ -4370,30 +4386,6 @@ function App() {
               )}
             </div>
 
-            <div className="settings-section">
-              <h3>Statistics</h3>
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <span className="stat-value">{stats.total}</span>
-                  <span className="stat-label">Total Projects</span>
-                </div>
-                <div className="stat-card">
-                  <span className="stat-value">
-                    {formatBytes(stats.totalSize)}
-                  </span>
-                  <span className="stat-label">Total Build Size</span>
-                </div>
-                <div className="stat-card">
-                  <span className="stat-value">{favorites.size}</span>
-                  <span className="stat-label">Favorites</span>
-                </div>
-                <div className="stat-card">
-                  <span className="stat-value">{hidden.size}</span>
-                  <span className="stat-label">Hidden</span>
-                </div>
-              </div>
-            </div>
-
             {rustVersionInfo && (
               <div className="settings-section">
                 <h3>Environment</h3>
@@ -4418,7 +4410,7 @@ function App() {
                               className="upgrade-btn small"
                             >
                               {upgradingHomebrew ? (
-                                <Spinner size={12} className="spinning" />
+                                <GearSpinner size={12} />
                               ) : (
                                 <ArrowUp size={12} />
                               )}
@@ -4442,7 +4434,7 @@ function App() {
                           >
                             {installingUpdate ? (
                               <>
-                                <Spinner size={12} className="spinning" />
+                                <GearSpinner size={12} />
                                 {updateProgress !== null &&
                                   `${updateProgress}%`}
                               </>
@@ -4455,7 +4447,7 @@ function App() {
                           </button>
                         </span>
                       ) : checkingForUpdates ? (
-                        <Spinner size={14} className="spinning" />
+                        <GearSpinner size={14} />
                       ) : (
                         <button
                           onClick={checkForAppUpdate}
@@ -4485,7 +4477,7 @@ function App() {
                               className="upgrade-btn small"
                             >
                               {upgradingRustHomebrew ? (
-                                <Spinner size={12} className="spinning" />
+                                <GearSpinner size={12} />
                               ) : (
                                 <ArrowUp size={12} />
                               )}
@@ -4547,7 +4539,7 @@ function App() {
                 <button onClick={checkRequiredTools} disabled={checkingTools}>
                   {checkingTools ? (
                     <>
-                      <Spinner size={16} className="spinning" /> Checking...
+                      <GearSpinner size={16} /> Checking...
                     </>
                   ) : (
                     <>
@@ -4585,7 +4577,7 @@ function App() {
                         >
                           {installingTools.has(tool.name) ? (
                             <>
-                              <Spinner size={14} className="spinning" />{" "}
+                              <GearSpinner size={14} />{" "}
                               Installing...
                             </>
                           ) : installQueue.some((t) => t.name === tool.name) ? (

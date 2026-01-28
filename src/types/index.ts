@@ -33,6 +33,10 @@ export interface Project {
   last_modified: number;
   is_workspace_member: boolean;
   workspace_root: string | null;
+  git_url: string | null;
+  commit_count: number;
+  version: string | null;
+  rust_version: string | null;
 }
 
 export interface CleanResult {

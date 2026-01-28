@@ -9,10 +9,10 @@ import {
   Star,
   Scroll,
   MagnifyingGlass,
-  Spinner,
   X,
 } from "@phosphor-icons/react";
 import type { View, Project, BackgroundJob } from "../types";
+import { GearSpinner } from "./GearSpinner";
 
 interface SidebarProps {
   view: View;
@@ -82,7 +82,7 @@ export function Sidebar({
       {jobs.length > 0 && (
         <div className="job-queue">
           <div className="job-queue-header">
-            <Spinner size={14} className="spinning" />
+            <GearSpinner size={14} />
             Running ({jobs.length})
           </div>
           {jobs.map((job) => (

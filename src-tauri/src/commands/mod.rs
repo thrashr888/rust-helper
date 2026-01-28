@@ -67,6 +67,10 @@ pub struct Project {
     pub last_modified: u64,
     pub is_workspace_member: bool,
     pub workspace_root: Option<String>,
+    pub git_url: Option<String>,
+    pub commit_count: u32,
+    pub version: Option<String>,
+    pub rust_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +83,9 @@ struct CargoToml {
 #[derive(Debug, Deserialize)]
 struct Package {
     name: Option<String>,
+    version: Option<String>,
+    #[serde(rename = "rust-version")]
+    rust_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,19 +147,65 @@ fn get_last_modified(path: &Path) -> u64 {
     latest
 }
 
-fn parse_cargo_toml(path: &Path) -> Option<(String, usize, bool)> {
+/// Returns (name, dep_count, is_workspace_root, version, rust_version)
+fn parse_cargo_toml(path: &Path) -> Option<(String, usize, bool, Option<String>, Option<String>)> {
     let content = fs::read_to_string(path).ok()?;
     let cargo: CargoToml = toml::from_str(&content).ok()?;
 
-    let name = cargo
+    let (name, version, rust_version) = cargo
         .package
-        .and_then(|p| p.name)
-        .unwrap_or_else(|| "unknown".to_string());
+        .map(|p| (p.name, p.version, p.rust_version))
+        .unwrap_or((None, None, None));
 
+    let name = name.unwrap_or_else(|| "unknown".to_string());
     let dep_count = cargo.dependencies.map(|d| d.len()).unwrap_or(0);
     let is_workspace_root = cargo.workspace.is_some();
 
-    Some((name, dep_count, is_workspace_root))
+    Some((name, dep_count, is_workspace_root, version, rust_version))
+}
+
+/// Get git remote URL for a project directory
+fn get_project_git_url(project_dir: &Path) -> Option<String> {
+    Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(project_dir)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let url = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                // Convert to GitHub HTTPS URL if it's a git URL
+                if url.contains("github.com") {
+                    Some(
+                        url.replace("git@github.com:", "https://github.com/")
+                            .replace(".git", ""),
+                    )
+                } else if !url.is_empty() {
+                    Some(url)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+}
+
+/// Get commit count for a project directory
+fn get_project_commit_count(project_dir: &Path) -> u32 {
+    Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(project_dir)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0)
 }
 
 fn find_workspace_roots(root_path: &str) -> HashSet<PathBuf> {
@@ -220,7 +273,9 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
 
             let project_dir = path.parent().unwrap();
 
-            if let Some((name, dep_count, _is_workspace_root)) = parse_cargo_toml(path) {
+            if let Some((name, dep_count, _is_workspace_root, version, rust_version)) =
+                parse_cargo_toml(path)
+            {
                 let target_path = project_dir.join("target");
                 let target_size = get_dir_size(&target_path);
                 let last_modified = get_last_modified(project_dir);
@@ -249,6 +304,10 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
                     None
                 };
 
+                // Get git info
+                let git_url = get_project_git_url(project_dir);
+                let commit_count = get_project_commit_count(project_dir);
+
                 projects.push(Project {
                     name,
                     path: project_dir.to_string_lossy().to_string(),
@@ -257,6 +316,10 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
                     last_modified,
                     is_workspace_member,
                     workspace_root,
+                    git_url,
+                    commit_count,
+                    version,
+                    rust_version,
                 });
             }
         }

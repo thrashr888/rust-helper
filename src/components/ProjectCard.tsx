@@ -1,4 +1,4 @@
-import { Star, Eye, EyeSlash } from "@phosphor-icons/react";
+import { Star, Eye, EyeSlash, GithubLogo, GitBranch } from "@phosphor-icons/react";
 import type { Project } from "../types";
 import { formatBytes, formatTimeAgo } from "../utils/formatting";
 
@@ -27,8 +27,25 @@ export function ProjectCard({
       onClick={() => onClick(project)}
     >
       <div className="card-header">
-        <h3>{project.name}</h3>
+        <h3>
+          {project.name}
+          {project.version && (
+            <span className="version-badge">v{project.version}</span>
+          )}
+        </h3>
         <div className="card-actions">
+          {project.git_url && (
+            <a
+              href={project.git_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="icon-btn"
+              onClick={(e) => e.stopPropagation()}
+              title={project.git_url}
+            >
+              <GithubLogo size={16} />
+            </a>
+          )}
           <button
             className={`icon-btn ${isFavorite ? "active" : ""}`}
             onClick={(e) => {
@@ -58,6 +75,16 @@ export function ProjectCard({
       <div className="stats">
         <span className="stat size">{formatBytes(project.target_size)}</span>
         <span className="stat deps">{project.dep_count} deps</span>
+        {project.commit_count > 0 && (
+          <span className="stat commits" title="Git commits">
+            <GitBranch size={12} /> {project.commit_count}
+          </span>
+        )}
+        {project.rust_version && (
+          <span className="stat rust-version" title="Rust version">
+            rust {project.rust_version}
+          </span>
+        )}
         <span className="stat time">{formatTimeAgo(project.last_modified)}</span>
       </div>
     </div>

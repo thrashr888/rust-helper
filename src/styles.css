@@ -26,6 +26,44 @@ body {
   min-height: 100vh;
 }
 
+/* Loading screen */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-primary);
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.loading-logo {
+  width: 120px;
+  height: 120px;
+  animation: spin 2s linear infinite;
+}
+
+.loading-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .app {
   display: flex;
   height: 100vh;
@@ -164,10 +202,18 @@ button.secondary:hover {
 
 .loading {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 16px;
   height: 200px;
   color: var(--text-secondary);
+}
+
+.loading-icon {
+  width: 48px;
+  height: 48px;
+  animation: spin 2s linear infinite;
 }
 
 /* Header row */
@@ -256,6 +302,26 @@ button.secondary:hover {
 .card-header h3 {
   margin-bottom: 0;
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.version-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(245, 158, 11, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.stat.commits,
+.stat.rust-version {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .card-actions {
@@ -427,6 +493,10 @@ button svg {
 
 .spinning {
   animation: spin 1s linear infinite;
+}
+
+.gear-spinner {
+  animation: spin 1.5s linear infinite;
 }
 
 /* Dependencies view */
