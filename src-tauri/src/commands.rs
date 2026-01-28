@@ -691,6 +691,67 @@ struct CargoAuditWarning {
     advisory: CargoAuditAdvisory,
 }
 
+/// Parse cargo-audit JSON output into vulnerabilities and warnings.
+/// This is extracted to enable unit testing without running cargo audit.
+fn parse_cargo_audit_json(
+    json_str: &str,
+) -> Result<(Vec<Vulnerability>, Vec<AuditWarning>), String> {
+    let parsed: CargoAuditOutput =
+        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let vulnerabilities: Vec<Vulnerability> = parsed
+        .vulnerabilities
+        .list
+        .into_iter()
+        .map(|v| Vulnerability {
+            id: v.advisory.id,
+            package: v.package.name,
+            version: v.package.version,
+            title: v.advisory.title,
+            description: v.advisory.description,
+            severity: v.advisory.cvss.unwrap_or_else(|| "unknown".to_string()),
+            url: v.advisory.url,
+            patched_versions: v.versions.map(|v| v.patched).unwrap_or_default(),
+        })
+        .collect();
+
+    let mut warnings: Vec<AuditWarning> = Vec::new();
+    if let Some(w) = parsed.warnings {
+        for warn in w.unmaintained.unwrap_or_default() {
+            warnings.push(AuditWarning {
+                kind: warn.kind,
+                package: warn.package.name,
+                version: warn.package.version,
+                title: warn.advisory.title,
+                advisory_id: warn.advisory.id,
+                url: warn.advisory.url,
+            });
+        }
+        for warn in w.unsound.unwrap_or_default() {
+            warnings.push(AuditWarning {
+                kind: warn.kind,
+                package: warn.package.name,
+                version: warn.package.version,
+                title: warn.advisory.title,
+                advisory_id: warn.advisory.id,
+                url: warn.advisory.url,
+            });
+        }
+        for warn in w.yanked.unwrap_or_default() {
+            warnings.push(AuditWarning {
+                kind: warn.kind,
+                package: warn.package.name,
+                version: warn.package.version,
+                title: warn.advisory.title,
+                advisory_id: warn.advisory.id,
+                url: warn.advisory.url,
+            });
+        }
+    }
+
+    Ok((vulnerabilities, warnings))
+}
+
 #[tauri::command]
 pub fn check_audit(project_path: String) -> AuditResult {
     let path = PathBuf::from(&project_path);
@@ -710,67 +771,15 @@ pub fn check_audit(project_path: String) -> AuditResult {
             let stdout = String::from_utf8_lossy(&output.stdout);
 
             // Parse JSON output (cargo audit may return non-zero exit code if vulnerabilities found)
-            match serde_json::from_str::<CargoAuditOutput>(&stdout) {
-                Ok(parsed) => {
-                    let vulnerabilities: Vec<Vulnerability> = parsed
-                        .vulnerabilities
-                        .list
-                        .into_iter()
-                        .map(|v| Vulnerability {
-                            id: v.advisory.id,
-                            package: v.package.name,
-                            version: v.package.version,
-                            title: v.advisory.title,
-                            description: v.advisory.description,
-                            severity: v.advisory.cvss.unwrap_or_else(|| "unknown".to_string()),
-                            url: v.advisory.url,
-                            patched_versions: v.versions.map(|v| v.patched).unwrap_or_default(),
-                        })
-                        .collect();
-
-                    let mut warnings: Vec<AuditWarning> = Vec::new();
-                    if let Some(w) = parsed.warnings {
-                        for warn in w.unmaintained.unwrap_or_default() {
-                            warnings.push(AuditWarning {
-                                kind: warn.kind,
-                                package: warn.package.name,
-                                version: warn.package.version,
-                                title: warn.advisory.title,
-                                advisory_id: warn.advisory.id,
-                                url: warn.advisory.url,
-                            });
-                        }
-                        for warn in w.unsound.unwrap_or_default() {
-                            warnings.push(AuditWarning {
-                                kind: warn.kind,
-                                package: warn.package.name,
-                                version: warn.package.version,
-                                title: warn.advisory.title,
-                                advisory_id: warn.advisory.id,
-                                url: warn.advisory.url,
-                            });
-                        }
-                        for warn in w.yanked.unwrap_or_default() {
-                            warnings.push(AuditWarning {
-                                kind: warn.kind,
-                                package: warn.package.name,
-                                version: warn.package.version,
-                                title: warn.advisory.title,
-                                advisory_id: warn.advisory.id,
-                                url: warn.advisory.url,
-                            });
-                        }
-                    }
-
-                    AuditResult {
-                        project_path,
-                        project_name,
-                        vulnerabilities,
-                        warnings,
-                        success: true,
-                        error: None,
-                    }
-                }
+            match parse_cargo_audit_json(&stdout) {
+                Ok((vulnerabilities, warnings)) => AuditResult {
+                    project_path,
+                    project_name,
+                    vulnerabilities,
+                    warnings,
+                    success: true,
+                    error: None,
+                },
                 Err(e) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     AuditResult {
@@ -779,7 +788,7 @@ pub fn check_audit(project_path: String) -> AuditResult {
                         vulnerabilities: vec![],
                         warnings: vec![],
                         success: false,
-                        error: Some(format!("Failed to parse output: {}. Stderr: {}", e, stderr)),
+                        error: Some(format!("{}. Stderr: {}", e, stderr)),
                     }
                 }
             }
@@ -1369,6 +1378,24 @@ fn is_problematic_license(license: &str) -> bool {
         .any(|p| upper.contains(&p.to_uppercase()))
 }
 
+/// Parse cargo-license JSON output into license info.
+/// This is extracted to enable unit testing without running cargo license.
+fn parse_cargo_license_json(json_str: &str) -> Result<Vec<LicenseInfo>, String> {
+    let parsed: Vec<CargoLicenseEntry> =
+        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    Ok(parsed
+        .into_iter()
+        .map(|e| LicenseInfo {
+            name: e.name,
+            version: e.version,
+            license: e.license.unwrap_or_else(|| "Unknown".to_string()),
+            authors: e.authors,
+            repository: e.repository,
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub fn check_licenses(project_path: String) -> LicenseResult {
     let path = PathBuf::from(&project_path);
@@ -1387,27 +1414,14 @@ pub fn check_licenses(project_path: String) -> LicenseResult {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
 
-            match serde_json::from_str::<Vec<CargoLicenseEntry>>(&stdout) {
-                Ok(parsed) => {
-                    let licenses: Vec<LicenseInfo> = parsed
-                        .into_iter()
-                        .map(|e| LicenseInfo {
-                            name: e.name,
-                            version: e.version,
-                            license: e.license.unwrap_or_else(|| "Unknown".to_string()),
-                            authors: e.authors,
-                            repository: e.repository,
-                        })
-                        .collect();
-
-                    LicenseResult {
-                        project_path,
-                        project_name,
-                        licenses,
-                        success: true,
-                        error: None,
-                    }
-                }
+            match parse_cargo_license_json(&stdout) {
+                Ok(licenses) => LicenseResult {
+                    project_path,
+                    project_name,
+                    licenses,
+                    success: true,
+                    error: None,
+                },
                 Err(e) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     LicenseResult {
@@ -1415,7 +1429,7 @@ pub fn check_licenses(project_path: String) -> LicenseResult {
                         project_name,
                         licenses: vec![],
                         success: false,
-                        error: Some(format!("Failed to parse output: {}. Stderr: {}", e, stderr)),
+                        error: Some(format!("{}. Stderr: {}", e, stderr)),
                     }
                 }
             }
@@ -4156,5 +4170,161 @@ path = "../other-crate"
 "#;
         let value: toml::Value = toml::from_str(toml_str).unwrap();
         assert_eq!(extract_version(&value), None);
+    }
+
+    // ============ Cargo Audit JSON Parsing Tests ============
+
+    #[test]
+    fn test_parse_cargo_audit_json_no_vulnerabilities() {
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [],
+                "count": 0
+            },
+            "warnings": null
+        }"#;
+        let (vulns, warnings) = parse_cargo_audit_json(json).unwrap();
+        assert_eq!(vulns.len(), 0);
+        assert_eq!(warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_cargo_audit_json_with_vulnerability() {
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [
+                    {
+                        "advisory": {
+                            "id": "RUSTSEC-2021-0001",
+                            "title": "Test vulnerability",
+                            "description": "A test vulnerability description",
+                            "url": "https://rustsec.org/advisories/RUSTSEC-2021-0001",
+                            "cvss": "HIGH"
+                        },
+                        "package": {
+                            "name": "vulnerable-crate",
+                            "version": "1.0.0"
+                        },
+                        "versions": {
+                            "patched": ["1.0.1", "1.1.0"]
+                        }
+                    }
+                ],
+                "count": 1
+            },
+            "warnings": null
+        }"#;
+        let (vulns, warnings) = parse_cargo_audit_json(json).unwrap();
+        assert_eq!(vulns.len(), 1);
+        assert_eq!(vulns[0].id, "RUSTSEC-2021-0001");
+        assert_eq!(vulns[0].package, "vulnerable-crate");
+        assert_eq!(vulns[0].version, "1.0.0");
+        assert_eq!(vulns[0].severity, "HIGH");
+        assert_eq!(vulns[0].patched_versions, vec!["1.0.1", "1.1.0"]);
+        assert_eq!(warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_cargo_audit_json_with_warning() {
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [],
+                "count": 0
+            },
+            "warnings": {
+                "unmaintained": [
+                    {
+                        "kind": "unmaintained",
+                        "package": {
+                            "name": "old-crate",
+                            "version": "0.1.0"
+                        },
+                        "advisory": {
+                            "id": "RUSTSEC-2020-0050",
+                            "title": "Crate is unmaintained",
+                            "description": "This crate is no longer maintained",
+                            "url": null,
+                            "cvss": null
+                        }
+                    }
+                ],
+                "unsound": null,
+                "yanked": null
+            }
+        }"#;
+        let (vulns, warnings) = parse_cargo_audit_json(json).unwrap();
+        assert_eq!(vulns.len(), 0);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, "unmaintained");
+        assert_eq!(warnings[0].package, "old-crate");
+        assert_eq!(warnings[0].advisory_id, "RUSTSEC-2020-0050");
+    }
+
+    #[test]
+    fn test_parse_cargo_audit_json_invalid() {
+        let json = "not valid json";
+        let result = parse_cargo_audit_json(json);
+        assert!(result.is_err());
+    }
+
+    // ============ Cargo License JSON Parsing Tests ============
+
+    #[test]
+    fn test_parse_cargo_license_json_empty() {
+        let json = "[]";
+        let licenses = parse_cargo_license_json(json).unwrap();
+        assert_eq!(licenses.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_cargo_license_json_with_licenses() {
+        let json = r#"[
+            {
+                "name": "serde",
+                "version": "1.0.200",
+                "authors": "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+                "repository": "https://github.com/serde-rs/serde",
+                "license": "MIT OR Apache-2.0"
+            },
+            {
+                "name": "tokio",
+                "version": "1.36.0",
+                "authors": "Tokio Contributors",
+                "repository": "https://github.com/tokio-rs/tokio",
+                "license": "MIT"
+            }
+        ]"#;
+        let licenses = parse_cargo_license_json(json).unwrap();
+        assert_eq!(licenses.len(), 2);
+        assert_eq!(licenses[0].name, "serde");
+        assert_eq!(licenses[0].version, "1.0.200");
+        assert_eq!(licenses[0].license, "MIT OR Apache-2.0");
+        assert_eq!(licenses[1].name, "tokio");
+        assert_eq!(licenses[1].license, "MIT");
+    }
+
+    #[test]
+    fn test_parse_cargo_license_json_unknown_license() {
+        let json = r#"[
+            {
+                "name": "mystery-crate",
+                "version": "0.1.0",
+                "authors": null,
+                "repository": null,
+                "license": null
+            }
+        ]"#;
+        let licenses = parse_cargo_license_json(json).unwrap();
+        assert_eq!(licenses.len(), 1);
+        assert_eq!(licenses[0].name, "mystery-crate");
+        assert_eq!(licenses[0].license, "Unknown");
+        assert!(licenses[0].authors.is_none());
+    }
+
+    #[test]
+    fn test_parse_cargo_license_json_invalid() {
+        let json = "not valid json";
+        let result = parse_cargo_license_json(json);
+        assert!(result.is_err());
     }
 }

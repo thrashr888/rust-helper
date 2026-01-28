@@ -2413,7 +2413,7 @@ button svg {
 
 /* Tests Tab */
 .tests-tab {
-  padding: 20px;
+  padding: 0 20px 20px;
 }
 
 .tests-toolbar {
