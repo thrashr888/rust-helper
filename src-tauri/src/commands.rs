@@ -3724,3 +3724,222 @@ pub fn detect_github_actions(project_path: String) -> GithubActionsInfo {
         actions_url,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============ XML Parsing Tests ============
+
+    #[test]
+    fn test_extract_xml_attr_basic() {
+        let line = r#"<testcase name="test_foo" classname="my_crate" time="0.001">"#;
+        assert_eq!(extract_xml_attr(line, "name"), Some("test_foo".to_string()));
+        assert_eq!(extract_xml_attr(line, "classname"), Some("my_crate".to_string()));
+        assert_eq!(extract_xml_attr(line, "time"), Some("0.001".to_string()));
+    }
+
+    #[test]
+    fn test_extract_xml_attr_missing() {
+        let line = r#"<testcase name="test_foo">"#;
+        assert_eq!(extract_xml_attr(line, "classname"), None);
+        assert_eq!(extract_xml_attr(line, "missing"), None);
+    }
+
+    #[test]
+    fn test_extract_xml_attr_empty_value() {
+        let line = r#"<testcase name="" classname="foo">"#;
+        assert_eq!(extract_xml_attr(line, "name"), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_parse_junit_xml_empty() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="0" failures="0" errors="0">
+</testsuites>"#;
+
+        let result = parse_junit_xml(xml).unwrap();
+        assert_eq!(result.total_tests, 0);
+        assert_eq!(result.total_passed, 0);
+        assert_eq!(result.total_failed, 0);
+        assert!(result.suites.is_empty());
+    }
+
+    #[test]
+    fn test_parse_junit_xml_passing_tests() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" failures="0" errors="0">
+  <testsuite name="my_crate" tests="2" failures="0" errors="0" skipped="0" time="0.005">
+    <testcase name="test_one" classname="my_crate::tests" time="0.002" />
+    <testcase name="test_two" classname="my_crate::tests" time="0.003" />
+  </testsuite>
+</testsuites>"#;
+
+        let result = parse_junit_xml(xml).unwrap();
+        assert_eq!(result.total_tests, 2);
+        assert_eq!(result.total_passed, 2);
+        assert_eq!(result.total_failed, 0);
+        assert_eq!(result.suites.len(), 1);
+        assert_eq!(result.suites[0].test_cases.len(), 2);
+        assert_eq!(result.suites[0].test_cases[0].name, "test_one");
+        assert_eq!(result.suites[0].test_cases[0].status, "passed");
+    }
+
+    #[test]
+    fn test_parse_junit_xml_with_failures() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" failures="1" errors="0">
+  <testsuite name="my_crate" tests="2" failures="1" errors="0" skipped="0" time="0.010">
+    <testcase name="test_pass" classname="my_crate" time="0.002" />
+    <testcase name="test_fail" classname="my_crate" time="0.008">
+      <failure message="assertion failed">Expected 1, got 2</failure>
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+
+        let result = parse_junit_xml(xml).unwrap();
+        assert_eq!(result.total_tests, 2);
+        assert_eq!(result.total_passed, 1);
+        assert_eq!(result.total_failed, 1);
+
+        let failed_test = &result.suites[0].test_cases[1];
+        assert_eq!(failed_test.name, "test_fail");
+        assert_eq!(failed_test.status, "failed");
+        assert_eq!(failed_test.failure_message, Some("assertion failed".to_string()));
+    }
+
+    #[test]
+    fn test_parse_junit_xml_with_skipped() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" failures="0" errors="0">
+  <testsuite name="my_crate" tests="2" failures="0" errors="0" skipped="1" time="0.001">
+    <testcase name="test_run" classname="my_crate" time="0.001" />
+    <testcase name="test_skip" classname="my_crate" time="0.000">
+      <skipped />
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+
+        let result = parse_junit_xml(xml).unwrap();
+        assert_eq!(result.total_tests, 2);
+        assert_eq!(result.total_skipped, 1);
+
+        let skipped_test = &result.suites[0].test_cases[1];
+        assert_eq!(skipped_test.status, "skipped");
+    }
+
+    // ============ License Detection Tests ============
+
+    #[test]
+    fn test_is_problematic_license_gpl() {
+        assert!(is_problematic_license("GPL-3.0"));
+        assert!(is_problematic_license("GPL-2.0"));
+        assert!(is_problematic_license("LGPL-3.0"));
+        assert!(is_problematic_license("AGPL-3.0"));
+    }
+
+    #[test]
+    fn test_is_problematic_license_copyleft() {
+        assert!(is_problematic_license("SSPL"));
+        assert!(is_problematic_license("CC-BY-NC"));
+        assert!(is_problematic_license("BUSL"));
+    }
+
+    #[test]
+    fn test_is_problematic_license_permissive() {
+        assert!(!is_problematic_license("MIT"));
+        assert!(!is_problematic_license("Apache-2.0"));
+        assert!(!is_problematic_license("BSD-3-Clause"));
+        assert!(!is_problematic_license("ISC"));
+    }
+
+    #[test]
+    fn test_is_problematic_license_case_insensitive() {
+        assert!(is_problematic_license("gpl-3.0"));
+        assert!(is_problematic_license("GPL-3.0"));
+        assert!(is_problematic_license("Gpl-3.0"));
+    }
+
+    // ============ Version Extraction Tests ============
+
+    #[test]
+    fn test_extract_version_string() {
+        let value = toml::Value::String("1.2.3".to_string());
+        assert_eq!(extract_version(&value), Some("1.2.3".to_string()));
+    }
+
+    #[test]
+    fn test_extract_version_table() {
+        let mut table = toml::map::Map::new();
+        table.insert("version".to_string(), toml::Value::String("2.0.0".to_string()));
+        let value = toml::Value::Table(table);
+        assert_eq!(extract_version(&value), Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_extract_version_table_no_version() {
+        let mut table = toml::map::Map::new();
+        table.insert("path".to_string(), toml::Value::String("./local".to_string()));
+        let value = toml::Value::Table(table);
+        assert_eq!(extract_version(&value), None);
+    }
+
+    // ============ Tool Detection Tests ============
+
+    #[test]
+    fn test_check_tool_installed_cargo() {
+        // cargo should always be installed in a Rust environment
+        assert!(check_tool_installed("cargo", "help"));
+    }
+
+    // ============ Path/Config Tests ============
+
+    #[test]
+    fn test_get_default_scan_root() {
+        let root = get_default_scan_root();
+        assert!(!root.is_empty());
+        // Should be a valid path (home directory or similar)
+        assert!(root.starts_with('/') || root.contains(':'));
+    }
+
+    #[test]
+    fn test_get_config_path() {
+        let path = get_config_path();
+        assert!(path.to_string_lossy().contains("rust-helper"));
+        assert!(path.to_string_lossy().contains("config.json"));
+    }
+
+    #[test]
+    fn test_get_cache_path() {
+        let path = get_cache_path();
+        assert!(path.to_string_lossy().contains("rust-helper"));
+        assert!(path.to_string_lossy().contains("cache.json"));
+    }
+
+    // ============ Timestamp Tests ============
+
+    #[test]
+    fn test_get_current_timestamp() {
+        let ts1 = get_current_timestamp();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let ts2 = get_current_timestamp();
+        assert!(ts2 >= ts1);
+        // Should be a reasonable Unix timestamp (after year 2020)
+        assert!(ts1 > 1577836800);
+    }
+
+    // ============ Directory Size Tests ============
+
+    #[test]
+    fn test_get_dir_size_nonexistent() {
+        let size = get_dir_size(Path::new("/nonexistent/path/that/does/not/exist"));
+        assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_get_dir_size_current_dir() {
+        let size = get_dir_size(Path::new("."));
+        // Current directory should have some size
+        assert!(size > 0);
+    }
+}
