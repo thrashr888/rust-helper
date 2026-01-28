@@ -8,6 +8,46 @@ import hljs from "highlight.js/lib/core";
 import toml from "highlight.js/lib/languages/ini"; // TOML uses INI-like syntax
 import "highlight.js/styles/github-dark.css";
 
+// Import types and utilities from extracted modules
+import type {
+  View,
+  ProjectDetailTab,
+  SortBy,
+  Project,
+  CleanResult,
+  AuditResult,
+  CargoCommandResult,
+  CommandHistoryEntry,
+  OutdatedResult,
+  DepAnalysis,
+  ToolchainAnalysis,
+  LicenseResult,
+  LicenseAnalysis,
+  GitInfo,
+  GitTag,
+  GitStats,
+  InstalledIde,
+  DocResult,
+  CargoFeatures,
+  BinarySizes,
+  BloatAnalysis,
+  CoverageFile,
+  CoverageResult,
+  MsrvInfo,
+  WorkspaceInfo,
+  GitHubActionsStatus,
+  RustVersionInfo,
+  HomebrewStatus,
+  RustHomebrewStatus,
+  SearchMatch,
+  SearchResult,
+  ScanCache,
+  ToolStatus,
+  NextestResults,
+  GithubActionsInfo,
+} from "./types";
+import { formatBytes, formatTimeAgo, formatDuration } from "./utils/formatting";
+
 hljs.registerLanguage("toml", toml);
 import {
   Folder,
@@ -53,425 +93,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-type View =
-  | "projects"
-  | "search"
-  | "cleanup"
-  | "dependencies"
-  | "security"
-  | "health"
-  | "analysis"
-  | "licenses"
-  | "settings"
-  | "project-detail";
-
-type ProjectDetailTab =
-  | "commands"
-  | "tests"
-  | "cleanup"
-  | "dependencies"
-  | "security"
-  | "licenses"
-  | "git"
-  | "cargo-toml"
-  | "docs";
-
-type SortBy = "name" | "lastModified" | "size" | "deps";
-
-interface Vulnerability {
-  id: string;
-  package: string;
-  version: string;
-  title: string;
-  description: string;
-  severity: string;
-  url: string | null;
-  patched_versions: string[];
-}
-
-interface AuditWarning {
-  kind: string;
-  package: string;
-  version: string;
-  title: string;
-  advisory_id: string;
-  url: string | null;
-}
-
-interface AuditResult {
-  project_path: string;
-  project_name: string;
-  vulnerabilities: Vulnerability[];
-  warnings: AuditWarning[];
-  success: boolean;
-  error: string | null;
-}
-
-interface CargoCommandResult {
-  project_path: string;
-  command: string;
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-}
-
-interface CommandHistoryEntry {
-  id: string;
-  timestamp: number;
-  startTime: number;
-  durationMs: number;
-  command: string;
-  success: boolean;
-  exitCode: number | null;
-  output: string[];
-  isCollapsed: boolean;
-}
-
-interface VersionUsage {
-  version: string;
-  projects: string[];
-}
-
-interface DepUsage {
-  name: string;
-  versions: VersionUsage[];
-  project_count: number;
-}
-
-interface DepAnalysis {
-  dependencies: DepUsage[];
-  total_unique_deps: number;
-  deps_with_mismatches: number;
-}
-
-interface ToolchainInfo {
-  project_path: string;
-  project_name: string;
-  toolchain: string | null;
-  msrv: string | null;
-  channel: string | null;
-}
-
-interface ToolchainGroup {
-  version: string;
-  projects: string[];
-}
-
-interface ToolchainAnalysis {
-  projects: ToolchainInfo[];
-  toolchain_groups: ToolchainGroup[];
-  msrv_groups: ToolchainGroup[];
-  has_mismatches: boolean;
-}
-
-interface LicenseInfo {
-  name: string;
-  version: string;
-  license: string;
-  authors: string | null;
-  repository: string | null;
-}
-
-interface LicenseGroup {
-  license: string;
-  packages: string[];
-  is_problematic: boolean;
-}
-
-interface LicenseResult {
-  project_path: string;
-  project_name: string;
-  licenses: LicenseInfo[];
-  success: boolean;
-  error: string | null;
-}
-
-interface LicenseAnalysis {
-  projects: LicenseResult[];
-  license_groups: LicenseGroup[];
-  total_packages: number;
-  problematic_count: number;
-}
-
-interface GitInfo {
-  remote_url: string | null;
-  github_url: string | null;
-  commit_count: number;
-}
-
-interface GitTag {
-  name: string;
-  message: string;
-  date: string;
-  commit_hash: string;
-}
-
-interface InstalledIde {
-  id: string;
-  name: string;
-  command: string;
-}
-
-interface GitStats {
-  contributors: number;
-  commits: number;
-  branches: number;
-  tags: number;
-  first_commit_date: string | null;
-}
-
-interface DocResult {
-  success: boolean;
-  doc_path: string | null;
-  error: string | null;
-}
-
-interface CargoFeature {
-  name: string;
-  dependencies: string[];
-  is_default: boolean;
-}
-
-interface CargoFeatures {
-  features: CargoFeature[];
-  default_features: string[];
-}
-
-interface BinaryInfo {
-  name: string;
-  debug_size: number | null;
-  release_size: number | null;
-}
-
-interface BinarySizes {
-  debug: number | null;
-  release: number | null;
-  binaries: BinaryInfo[];
-}
-
-interface BloatCrate {
-  name: string;
-  size: number;
-  size_percent: number;
-}
-
-interface BloatFunction {
-  name: string;
-  size: number;
-  size_percent: number;
-  crate_name: string | null;
-}
-
-interface BloatAnalysis {
-  file_size: number;
-  text_size: number;
-  crates: BloatCrate[];
-  functions: BloatFunction[];
-}
-
-interface CoverageFile {
-  path: string;
-  covered: number;
-  coverable: number;
-  percent: number;
-}
-
-interface CoverageResult {
-  files: CoverageFile[];
-  total_covered: number;
-  total_coverable: number;
-  coverage_percent: number;
-}
-
-interface MsrvInfo {
-  msrv: string | null;
-  rust_version: string | null;
-  edition: string | null;
-}
-
-interface WorkspaceMember {
-  name: string;
-  path: string;
-  is_current: boolean;
-}
-
-interface WorkspaceInfo {
-  is_workspace: boolean;
-  members: WorkspaceMember[];
-  root_path: string | null;
-  is_member_of_workspace: boolean;
-  parent_workspace_path: string | null;
-  parent_workspace_name: string | null;
-}
-
-interface GitHubActionsStatus {
-  has_workflows: boolean;
-  workflows: string[];
-  badge_url: string | null;
-}
-
-interface RustVersionInfo {
-  rustc_version: string | null;
-  cargo_version: string | null;
-  default_toolchain: string | null;
-  installed_toolchains: string[];
-  active_toolchain: string | null;
-}
-
-interface HomebrewStatus {
-  installed_via_homebrew: boolean;
-  current_version: string | null;
-  latest_version: string | null;
-  update_available: boolean;
-  formula_name: string | null;
-}
-
-interface RustHomebrewStatus {
-  installed_via_homebrew: boolean;
-  current_version: string | null;
-  latest_version: string | null;
-  update_available: boolean;
-}
-
-interface SearchMatch {
-  start: number;
-  end: number;
-}
-
-interface ContextLine {
-  line_number: number;
-  content: string;
-}
-
-interface SearchResult {
-  project_path: string;
-  project_name: string;
-  file_path: string;
-  line_number: number;
-  line_content: string;
-  matches: SearchMatch[];
-  context_before: ContextLine[];
-  context_after: ContextLine[];
-}
-
-interface ScanCache {
-  outdated_results: OutdatedResult[] | null;
-  outdated_timestamp: number | null;
-  audit_results: AuditResult[] | null;
-  audit_timestamp: number | null;
-  dep_analysis: DepAnalysis | null;
-  dep_analysis_timestamp: number | null;
-  toolchain_analysis: ToolchainAnalysis | null;
-  toolchain_timestamp: number | null;
-  license_analysis: LicenseAnalysis | null;
-  license_timestamp: number | null;
-}
-
-interface ToolStatus {
-  name: string;
-  command: string;
-  installed: boolean;
-  install_cmd: string;
-  description: string;
-}
-
-interface TestResult {
-  name: string;
-  classname: string;
-  time_seconds: number;
-  status: "passed" | "failed" | "skipped";
-  failure_message: string | null;
-}
-
-interface TestSuiteResult {
-  name: string;
-  tests: number;
-  failures: number;
-  errors: number;
-  skipped: number;
-  time_seconds: number;
-  test_cases: TestResult[];
-}
-
-interface NextestResults {
-  suites: TestSuiteResult[];
-  total_tests: number;
-  total_passed: number;
-  total_failed: number;
-  total_skipped: number;
-  total_time_seconds: number;
-}
-
-interface GithubActionsInfo {
-  has_workflows: boolean;
-  workflow_files: string[];
-  github_url: string | null;
-  actions_url: string | null;
-}
-
-interface Project {
-  name: string;
-  path: string;
-  target_size: number;
-  dep_count: number;
-  last_modified: number;
-  is_workspace_member: boolean;
-  workspace_root: string | null;
-}
-
-interface CleanResult {
-  path: string;
-  name: string;
-  freed_bytes: number;
-  success: boolean;
-  error: string | null;
-}
-
-interface OutdatedDep {
-  name: string;
-  current: string;
-  latest: string;
-  kind: string;
-}
-
-interface OutdatedResult {
-  project_path: string;
-  project_name: string;
-  dependencies: OutdatedDep[];
-  success: boolean;
-  error: string | null;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-function formatTimeAgo(timestamp: number): string {
-  if (timestamp === 0) return "never";
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - timestamp;
-
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 604800)}w ago`;
-  return `${Math.floor(diff / 2592000)}mo ago`;
-}
-
-function formatDuration(ms: number | undefined): string {
-  if (ms === undefined || ms === null || isNaN(ms)) return "—";
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60000);
-  const seconds = ((ms % 60000) / 1000).toFixed(0);
-  return `${minutes}m ${seconds}s`;
-}
+// Types and utilities are now imported from ./types and ./utils/formatting
 
 function App() {
   const [view, setView] = useState<View>("projects");
