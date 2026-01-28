@@ -200,7 +200,10 @@ fn get_project_commit_count(project_dir: &Path) -> u32 {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok()
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
             } else {
                 None
             }
