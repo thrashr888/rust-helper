@@ -494,6 +494,24 @@ struct CargoOutdatedDep {
     kind: Option<String>,
 }
 
+/// Parse cargo outdated JSON output and return list of outdated dependencies
+fn parse_cargo_outdated_json(json_str: &str) -> Result<Vec<OutdatedDep>, String> {
+    let parsed: CargoOutdatedOutput =
+        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    Ok(parsed
+        .dependencies
+        .into_iter()
+        .filter(|d| d.project != d.latest) // Only include outdated ones
+        .map(|d| OutdatedDep {
+            name: d.name,
+            current: d.project,
+            latest: d.latest,
+            kind: d.kind.unwrap_or_else(|| "Normal".to_string()),
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub fn check_outdated(project_path: String) -> OutdatedResult {
     let path = PathBuf::from(&project_path);
@@ -523,29 +541,15 @@ pub fn check_outdated(project_path: String) -> OutdatedResult {
 
             let stdout = String::from_utf8_lossy(&output.stdout);
 
-            // Parse JSON output
-            match serde_json::from_str::<CargoOutdatedOutput>(&stdout) {
-                Ok(parsed) => {
-                    let dependencies: Vec<OutdatedDep> = parsed
-                        .dependencies
-                        .into_iter()
-                        .filter(|d| d.project != d.latest) // Only include outdated ones
-                        .map(|d| OutdatedDep {
-                            name: d.name,
-                            current: d.project,
-                            latest: d.latest,
-                            kind: d.kind.unwrap_or_else(|| "Normal".to_string()),
-                        })
-                        .collect();
-
-                    OutdatedResult {
-                        project_path,
-                        project_name,
-                        dependencies,
-                        success: true,
-                        error: None,
-                    }
-                }
+            // Parse JSON output using extracted parser
+            match parse_cargo_outdated_json(&stdout) {
+                Ok(dependencies) => OutdatedResult {
+                    project_path,
+                    project_name,
+                    dependencies,
+                    success: true,
+                    error: None,
+                },
                 Err(e) => OutdatedResult {
                     project_path,
                     project_name,
@@ -2811,6 +2815,35 @@ pub struct RustVersionInfo {
     pub active_toolchain: Option<String>,
 }
 
+/// Parse rustup toolchain list output and return installed toolchains with default/active info
+fn parse_rustup_toolchain_list(output: &str) -> (Vec<String>, Option<String>, Option<String>) {
+    let mut installed_toolchains = Vec::new();
+    let mut default_toolchain = None;
+    let mut active_toolchain = None;
+
+    for line in output.lines() {
+        let is_default = line.contains("(default)");
+        let is_active = line.contains("(active)") || line.contains("(default)");
+        let name = line
+            .replace("(default)", "")
+            .replace("(active)", "")
+            .trim()
+            .to_string();
+
+        if !name.is_empty() {
+            if is_default {
+                default_toolchain = Some(name.clone());
+            }
+            if is_active {
+                active_toolchain = Some(name.clone());
+            }
+            installed_toolchains.push(name);
+        }
+    }
+
+    (installed_toolchains, default_toolchain, active_toolchain)
+}
+
 #[tauri::command]
 pub fn get_rust_version_info() -> RustVersionInfo {
     // Get rustc version
@@ -2829,38 +2862,16 @@ pub fn get_rust_version_info() -> RustVersionInfo {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string());
 
-    // Get installed toolchains
+    // Get installed toolchains using extracted parser
     let toolchains_output = Command::new("rustup")
         .args(["toolchain", "list"])
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok());
 
-    let mut installed_toolchains = Vec::new();
-    let mut default_toolchain = None;
-    let mut active_toolchain = None;
-
-    if let Some(output) = toolchains_output {
-        for line in output.lines() {
-            let is_default = line.contains("(default)");
-            let is_active = line.contains("(active)") || line.contains("(default)");
-            let name = line
-                .replace("(default)", "")
-                .replace("(active)", "")
-                .trim()
-                .to_string();
-
-            if !name.is_empty() {
-                if is_default {
-                    default_toolchain = Some(name.clone());
-                }
-                if is_active {
-                    active_toolchain = Some(name.clone());
-                }
-                installed_toolchains.push(name);
-            }
-        }
-    }
+    let (installed_toolchains, default_toolchain, active_toolchain) = toolchains_output
+        .map(|o| parse_rustup_toolchain_list(&o))
+        .unwrap_or_default();
 
     RustVersionInfo {
         rustc_version,
@@ -3647,7 +3658,9 @@ fn parse_junit_xml(content: &str) -> Result<NextestResults, String> {
                 total_tests += suite.tests;
                 total_failed += suite.failures + suite.errors;
                 total_skipped += suite.skipped;
-                total_passed += suite.tests.saturating_sub(suite.failures + suite.errors + suite.skipped);
+                total_passed += suite
+                    .tests
+                    .saturating_sub(suite.failures + suite.errors + suite.skipped);
                 total_time += suite.time_seconds;
                 suites.push(suite);
             }
@@ -3696,7 +3709,9 @@ pub struct GithubActionsInfo {
 
 #[tauri::command]
 pub fn detect_github_actions(project_path: String) -> GithubActionsInfo {
-    let workflows_dir = PathBuf::from(&project_path).join(".github").join("workflows");
+    let workflows_dir = PathBuf::from(&project_path)
+        .join(".github")
+        .join("workflows");
     let mut workflow_files = Vec::new();
 
     if workflows_dir.exists() && workflows_dir.is_dir() {
@@ -3727,7 +3742,11 @@ pub fn detect_github_actions(project_path: String) -> GithubActionsInfo {
                 let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 // Convert SSH URL to HTTPS if needed
                 if url.starts_with("git@github.com:") {
-                    Some(url.replace("git@github.com:", "https://github.com/").trim_end_matches(".git").to_string())
+                    Some(
+                        url.replace("git@github.com:", "https://github.com/")
+                            .trim_end_matches(".git")
+                            .to_string(),
+                    )
                 } else if url.starts_with("https://github.com/") {
                     Some(url.trim_end_matches(".git").to_string())
                 } else {
@@ -3758,7 +3777,10 @@ mod tests {
     fn test_extract_xml_attr_basic() {
         let line = r#"<testcase name="test_foo" classname="my_crate" time="0.001">"#;
         assert_eq!(extract_xml_attr(line, "name"), Some("test_foo".to_string()));
-        assert_eq!(extract_xml_attr(line, "classname"), Some("my_crate".to_string()));
+        assert_eq!(
+            extract_xml_attr(line, "classname"),
+            Some("my_crate".to_string())
+        );
         assert_eq!(extract_xml_attr(line, "time"), Some("0.001".to_string()));
     }
 
@@ -3837,7 +3859,10 @@ mod tests {
         let failed_test = &result.suites[0].test_cases[1];
         assert_eq!(failed_test.name, "test_fail");
         assert_eq!(failed_test.status, "failed");
-        assert_eq!(failed_test.failure_message, Some("assertion failed".to_string()));
+        assert_eq!(
+            failed_test.failure_message,
+            Some("assertion failed".to_string())
+        );
     }
 
     #[test]
@@ -3903,7 +3928,10 @@ mod tests {
     #[test]
     fn test_extract_version_table() {
         let mut table = toml::map::Map::new();
-        table.insert("version".to_string(), toml::Value::String("2.0.0".to_string()));
+        table.insert(
+            "version".to_string(),
+            toml::Value::String("2.0.0".to_string()),
+        );
         let value = toml::Value::Table(table);
         assert_eq!(extract_version(&value), Some("2.0.0".to_string()));
     }
@@ -3911,7 +3939,10 @@ mod tests {
     #[test]
     fn test_extract_version_table_no_version() {
         let mut table = toml::map::Map::new();
-        table.insert("path".to_string(), toml::Value::String("./local".to_string()));
+        table.insert(
+            "path".to_string(),
+            toml::Value::String("./local".to_string()),
+        );
         let value = toml::Value::Table(table);
         assert_eq!(extract_version(&value), None);
     }
@@ -4019,7 +4050,10 @@ serde = "1.0"
 tokio = "1.0"
 "#;
         let cargo: CargoToml = toml::from_str(toml_content).unwrap();
-        assert_eq!(cargo.package.as_ref().unwrap().name, Some("my-crate".to_string()));
+        assert_eq!(
+            cargo.package.as_ref().unwrap().name,
+            Some("my-crate".to_string())
+        );
         assert_eq!(cargo.dependencies.as_ref().unwrap().len(), 2);
         assert!(cargo.workspace.is_none());
     }
@@ -4326,5 +4360,141 @@ path = "../other-crate"
         let json = "not valid json";
         let result = parse_cargo_license_json(json);
         assert!(result.is_err());
+    }
+
+    // ============ Cargo Outdated Parser Tests ============
+
+    #[test]
+    fn test_parse_cargo_outdated_json_basic() {
+        let json = r#"{
+            "dependencies": [
+                {
+                    "name": "serde",
+                    "project": "1.0.0",
+                    "latest": "1.0.200",
+                    "kind": "Normal"
+                },
+                {
+                    "name": "tokio",
+                    "project": "1.35.0",
+                    "latest": "1.40.0",
+                    "kind": "Normal"
+                }
+            ]
+        }"#;
+        let deps = parse_cargo_outdated_json(json).unwrap();
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0].name, "serde");
+        assert_eq!(deps[0].current, "1.0.0");
+        assert_eq!(deps[0].latest, "1.0.200");
+        assert_eq!(deps[0].kind, "Normal");
+        assert_eq!(deps[1].name, "tokio");
+    }
+
+    #[test]
+    fn test_parse_cargo_outdated_json_filters_up_to_date() {
+        let json = r#"{
+            "dependencies": [
+                {
+                    "name": "uptodate-crate",
+                    "project": "1.0.0",
+                    "latest": "1.0.0",
+                    "kind": "Normal"
+                },
+                {
+                    "name": "outdated-crate",
+                    "project": "0.9.0",
+                    "latest": "1.0.0",
+                    "kind": "Normal"
+                }
+            ]
+        }"#;
+        let deps = parse_cargo_outdated_json(json).unwrap();
+        // Should only include outdated-crate since uptodate-crate has same project and latest
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].name, "outdated-crate");
+    }
+
+    #[test]
+    fn test_parse_cargo_outdated_json_default_kind() {
+        let json = r#"{
+            "dependencies": [
+                {
+                    "name": "no-kind",
+                    "project": "1.0.0",
+                    "latest": "2.0.0",
+                    "kind": null
+                }
+            ]
+        }"#;
+        let deps = parse_cargo_outdated_json(json).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].kind, "Normal"); // Default value
+    }
+
+    #[test]
+    fn test_parse_cargo_outdated_json_empty() {
+        let json = r#"{"dependencies": []}"#;
+        let deps = parse_cargo_outdated_json(json).unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cargo_outdated_json_invalid() {
+        let json = "not valid json";
+        let result = parse_cargo_outdated_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("JSON parse error"));
+    }
+
+    // ============ Rustup Toolchain Parser Tests ============
+
+    #[test]
+    fn test_parse_rustup_toolchain_list_basic() {
+        let output = "stable-x86_64-apple-darwin (default)\nnightly-x86_64-apple-darwin";
+        let (toolchains, default, active) = parse_rustup_toolchain_list(output);
+        assert_eq!(toolchains.len(), 2);
+        assert_eq!(toolchains[0], "stable-x86_64-apple-darwin");
+        assert_eq!(toolchains[1], "nightly-x86_64-apple-darwin");
+        assert_eq!(default, Some("stable-x86_64-apple-darwin".to_string()));
+        // Default is also considered active
+        assert_eq!(active, Some("stable-x86_64-apple-darwin".to_string()));
+    }
+
+    #[test]
+    fn test_parse_rustup_toolchain_list_with_active() {
+        let output = "stable-x86_64-apple-darwin (default)\nnightly-x86_64-apple-darwin (active)";
+        let (toolchains, default, active) = parse_rustup_toolchain_list(output);
+        assert_eq!(toolchains.len(), 2);
+        assert_eq!(default, Some("stable-x86_64-apple-darwin".to_string()));
+        assert_eq!(active, Some("nightly-x86_64-apple-darwin".to_string()));
+    }
+
+    #[test]
+    fn test_parse_rustup_toolchain_list_empty() {
+        let output = "";
+        let (toolchains, default, active) = parse_rustup_toolchain_list(output);
+        assert!(toolchains.is_empty());
+        assert!(default.is_none());
+        assert!(active.is_none());
+    }
+
+    #[test]
+    fn test_parse_rustup_toolchain_list_multiple() {
+        let output = "stable-x86_64-apple-darwin (default)\nnightly-x86_64-apple-darwin\nbeta-x86_64-apple-darwin\n1.70.0-x86_64-apple-darwin";
+        let (toolchains, default, active) = parse_rustup_toolchain_list(output);
+        assert_eq!(toolchains.len(), 4);
+        assert_eq!(default, Some("stable-x86_64-apple-darwin".to_string()));
+        // Default is also active when no explicit (active) marker
+        assert_eq!(active, Some("stable-x86_64-apple-darwin".to_string()));
+    }
+
+    #[test]
+    fn test_parse_rustup_toolchain_list_no_default() {
+        let output = "stable-x86_64-apple-darwin\nnightly-x86_64-apple-darwin";
+        let (toolchains, default, active) = parse_rustup_toolchain_list(output);
+        assert_eq!(toolchains.len(), 2);
+        assert!(default.is_none());
+        assert!(active.is_none());
     }
 }
