@@ -3104,6 +3104,49 @@ pub struct HomebrewStatus {
     pub formula_name: Option<String>,
 }
 
+/// Parsed version info from brew info --json=v2 output
+#[derive(Debug, Clone, Default)]
+pub struct BrewVersionInfo {
+    pub installed_version: Option<String>,
+    pub latest_version: Option<String>,
+}
+
+/// Parse brew info --json=v2 output to extract version information
+fn parse_brew_info_json(json_str: &str) -> Option<BrewVersionInfo> {
+    let json: serde_json::Value = serde_json::from_str(json_str).ok()?;
+
+    let formula = json
+        .get("formulae")
+        .and_then(|f| f.as_array())
+        .and_then(|arr| arr.first())?;
+
+    let installed_version = formula
+        .get("installed")
+        .and_then(|i| i.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.get("version"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let latest_version = formula
+        .get("versions")
+        .and_then(|v| v.get("stable"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    Some(BrewVersionInfo {
+        installed_version,
+        latest_version,
+    })
+}
+
+/// Parse rustc --version output to extract version and check if homebrew
+fn parse_rustc_version(version_output: &str) -> (Option<String>, bool) {
+    let is_homebrew = version_output.contains("(Homebrew)");
+    let version = version_output.split_whitespace().nth(1).map(String::from);
+    (version, is_homebrew)
+}
+
 #[tauri::command]
 pub fn check_homebrew_status() -> HomebrewStatus {
     // Check if brew is available
@@ -3130,45 +3173,20 @@ pub fn check_homebrew_status() -> HomebrewStatus {
         if let Ok(output) = info_output {
             if output.status.success() {
                 let json_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    // Extract current installed version
-                    let current_version = json
-                        .get("formulae")
-                        .and_then(|f| f.as_array())
-                        .and_then(|arr| arr.first())
-                        .and_then(|formula| {
-                            formula
-                                .get("installed")
-                                .and_then(|i| i.as_array())
-                                .and_then(|arr| arr.first())
-                                .and_then(|v| v.get("version"))
-                                .and_then(|v| v.as_str())
-                                .map(String::from)
-                        });
-
-                    // Extract latest version
-                    let latest_version = json
-                        .get("formulae")
-                        .and_then(|f| f.as_array())
-                        .and_then(|arr| arr.first())
-                        .and_then(|formula| {
-                            formula
-                                .get("versions")
-                                .and_then(|v| v.get("stable"))
-                                .and_then(|v| v.as_str())
-                                .map(String::from)
-                        });
-
-                    if current_version.is_some() {
-                        let update_available = match (&current_version, &latest_version) {
+                if let Some(version_info) = parse_brew_info_json(&json_str) {
+                    if version_info.installed_version.is_some() {
+                        let update_available = match (
+                            &version_info.installed_version,
+                            &version_info.latest_version,
+                        ) {
                             (Some(current), Some(latest)) => current != latest,
                             _ => false,
                         };
 
                         return HomebrewStatus {
                             installed_via_homebrew: true,
-                            current_version,
-                            latest_version,
+                            current_version: version_info.installed_version,
+                            latest_version: version_info.latest_version,
                             update_available,
                             formula_name: Some(formula.to_string()),
                         };
@@ -3233,10 +3251,10 @@ pub fn check_rust_homebrew_status() -> RustHomebrewStatus {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string());
 
-    let is_homebrew = rustc_output
+    let (current_version, is_homebrew) = rustc_output
         .as_ref()
-        .map(|v| v.contains("(Homebrew)"))
-        .unwrap_or(false);
+        .map(|v| parse_rustc_version(v))
+        .unwrap_or((None, false));
 
     if !is_homebrew {
         return RustHomebrewStatus {
@@ -3247,12 +3265,7 @@ pub fn check_rust_homebrew_status() -> RustHomebrewStatus {
         };
     }
 
-    // Extract current version from rustc output (e.g., "rustc 1.92.0 (hash) (Homebrew)")
-    let current_version = rustc_output
-        .as_ref()
-        .and_then(|v| v.split_whitespace().nth(1).map(|s| s.to_string()));
-
-    // Check brew info for latest version
+    // Check brew info for latest version using extracted parser
     let brew_output = Command::new("brew")
         .args(["info", "rust", "--json=v2"])
         .output();
@@ -3260,20 +3273,7 @@ pub fn check_rust_homebrew_status() -> RustHomebrewStatus {
     let latest_version = brew_output.ok().and_then(|output| {
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
-            serde_json::from_str::<serde_json::Value>(&json_str)
-                .ok()
-                .and_then(|json| {
-                    json.get("formulae")
-                        .and_then(|f| f.as_array())
-                        .and_then(|arr| arr.first())
-                        .and_then(|formula| {
-                            formula
-                                .get("versions")
-                                .and_then(|v| v.get("stable"))
-                                .and_then(|v| v.as_str())
-                                .map(String::from)
-                        })
-                })
+            parse_brew_info_json(&json_str).and_then(|info| info.latest_version)
         } else {
             None
         }
@@ -4637,5 +4637,83 @@ members = ["crate-a", "crate-b"]
         assert!(msrv.msrv.is_none());
         assert!(msrv.rust_version.is_none());
         assert!(msrv.edition.is_none());
+    }
+
+    // ============ Brew Info JSON Parser Tests ============
+
+    #[test]
+    fn test_parse_brew_info_json_with_installed() {
+        let json = r#"{
+            "formulae": [{
+                "name": "rust-helper",
+                "installed": [{"version": "0.2.0"}],
+                "versions": {"stable": "0.2.3"}
+            }]
+        }"#;
+        let info = parse_brew_info_json(json).unwrap();
+        assert_eq!(info.installed_version, Some("0.2.0".to_string()));
+        assert_eq!(info.latest_version, Some("0.2.3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_brew_info_json_not_installed() {
+        let json = r#"{
+            "formulae": [{
+                "name": "rust-helper",
+                "installed": [],
+                "versions": {"stable": "0.2.3"}
+            }]
+        }"#;
+        let info = parse_brew_info_json(json).unwrap();
+        assert!(info.installed_version.is_none());
+        assert_eq!(info.latest_version, Some("0.2.3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_brew_info_json_empty_formulae() {
+        let json = r#"{"formulae": []}"#;
+        let info = parse_brew_info_json(json);
+        assert!(info.is_none());
+    }
+
+    #[test]
+    fn test_parse_brew_info_json_invalid() {
+        let json = "not valid json";
+        let info = parse_brew_info_json(json);
+        assert!(info.is_none());
+    }
+
+    // ============ Rustc Version Parser Tests ============
+
+    #[test]
+    fn test_parse_rustc_version_homebrew() {
+        let output = "rustc 1.92.0 (abc123 2024-01-15) (Homebrew)";
+        let (version, is_homebrew) = parse_rustc_version(output);
+        assert_eq!(version, Some("1.92.0".to_string()));
+        assert!(is_homebrew);
+    }
+
+    #[test]
+    fn test_parse_rustc_version_rustup() {
+        let output = "rustc 1.82.0 (f6e511eec 2024-10-15)";
+        let (version, is_homebrew) = parse_rustc_version(output);
+        assert_eq!(version, Some("1.82.0".to_string()));
+        assert!(!is_homebrew);
+    }
+
+    #[test]
+    fn test_parse_rustc_version_nightly() {
+        let output = "rustc 1.83.0-nightly (abc123 2024-09-01)";
+        let (version, is_homebrew) = parse_rustc_version(output);
+        assert_eq!(version, Some("1.83.0-nightly".to_string()));
+        assert!(!is_homebrew);
+    }
+
+    #[test]
+    fn test_parse_rustc_version_empty() {
+        let output = "";
+        let (version, is_homebrew) = parse_rustc_version(output);
+        assert!(version.is_none());
+        assert!(!is_homebrew);
     }
 }
