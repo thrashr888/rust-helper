@@ -31,6 +31,10 @@ toml = "0.8"
 log = "0.4"
 dirs = "5"
 glob = "0.3"
+tauri-plugin-debug-bridge = { path = "../../tauri-browser/crates/tauri-plugin-debug-bridge", optional = true }
+
+[features]
+debug-bridge = ["tauri-plugin-debug-bridge"]
 
 [profile.release]
 strip = true

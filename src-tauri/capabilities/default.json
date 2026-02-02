@@ -11,6 +11,7 @@
     "shell:default",
     "window-state:default",
     "updater:default",
-    "process:default"
+    "process:default",
+    "debug-bridge:default"
   ]
 }

@@ -35,6 +35,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            #[cfg(feature = "debug-bridge")]
+            app.handle().plugin(tauri_plugin_debug_bridge::init())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
