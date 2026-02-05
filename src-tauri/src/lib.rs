@@ -5,7 +5,8 @@ use commands::{
     add_recent_project, analyze_bloat, analyze_dependencies, analyze_toolchains, check_all_audits,
     check_all_licenses, check_all_outdated, check_audit, check_homebrew_status, check_licenses,
     check_outdated, check_required_tools, check_rust_homebrew_status, clean_project,
-    clean_projects, detect_github_actions, detect_installed_ides, generate_docs, get_binary_sizes,
+    clean_project_smart, clean_projects, clean_projects_smart, detect_github_actions,
+    estimate_clean_sizes, get_disk_space, detect_installed_ides, generate_docs, get_binary_sizes,
     get_cache, get_cargo_features, get_default_scan_root, get_favorites, get_git_info,
     get_git_stats, get_git_tags, get_github_actions_status, get_hidden, get_msrv,
     get_preferred_ide, get_recent_projects, get_rust_version_info, get_scan_root,
@@ -35,8 +36,6 @@ pub fn run() {
                         .build(),
                 )?;
             }
-            #[cfg(feature = "debug-bridge")]
-            app.handle().plugin(tauri_plugin_debug_bridge::init())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -49,6 +48,10 @@ pub fn run() {
             add_recent_project,
             clean_project,
             clean_projects,
+            clean_project_smart,
+            clean_projects_smart,
+            estimate_clean_sizes,
+            get_disk_space,
             check_outdated,
             check_all_outdated,
             get_scan_root,

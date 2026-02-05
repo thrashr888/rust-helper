@@ -12,10 +12,10 @@ name = "rust_helper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.3", features = [] }
+tauri-build = { version = "2.5.5", features = [] }
 
 [dependencies]
-tauri = { version = "2.9.5", features = ["protocol-asset"] }
+tauri = { version = "2.10.2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
@@ -27,14 +27,10 @@ serde_json = "1"
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2"
-toml = "0.8"
+toml = "0.9"
 log = "0.4"
-dirs = "5"
+dirs = "6"
 glob = "0.3"
-tauri-plugin-debug-bridge = { path = "../../tauri-browser/crates/tauri-plugin-debug-bridge", optional = true }
-
-[features]
-debug-bridge = ["tauri-plugin-debug-bridge"]
 
 [profile.release]
 strip = true

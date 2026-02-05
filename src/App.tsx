@@ -46,6 +46,8 @@ import type {
   NextestResults,
   GithubActionsInfo,
   BackgroundJob,
+  CleanEstimates,
+  DiskSpaceInfo,
 } from "./types";
 import { formatBytes, formatTimeAgo, formatDuration } from "./utils/formatting";
 import { Sidebar, ProjectCard, GearSpinner } from "./components";
@@ -106,6 +108,10 @@ function App() {
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [cleaningAll, setCleaningAll] = useState(false);
   const [cleaningAllDebug, setCleaningAllDebug] = useState(false);
+  const [cleaningSmart, setCleaningSmart] = useState<Set<string>>(new Set());
+  const [cleaningAllSmart, setCleaningAllSmart] = useState(false);
+  const [cleanEstimates, setCleanEstimates] = useState<CleanEstimates | null>(null);
+  const [diskSpace, setDiskSpace] = useState<DiskSpaceInfo | null>(null);
   const [outdatedResults, setOutdatedResults] = useState<OutdatedResult[]>([]);
   const [checkingOutdated, setCheckingOutdated] = useState(false);
   const [scanRoot, setScanRoot] = useState<string>("");
@@ -168,6 +174,7 @@ function App() {
   const [githubActionsInfo, setGithubActionsInfo] =
     useState<GithubActionsInfo | null>(null);
   const [copiedFailureId, setCopiedFailureId] = useState<string | null>(null);
+  const [copiedView, setCopiedView] = useState<string | null>(null);
   const [msrvInfo, setMsrvInfo] = useState<MsrvInfo | null>(null);
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [githubActionsStatus, setGithubActionsStatus] = useState<GitHubActionsStatus | null>(null);
@@ -395,6 +402,41 @@ function App() {
       console.error("Failed to clean projects:", e);
     }
     setStateFunc(false);
+  };
+
+  const cleanProjectSmart = async (projectPath: string) => {
+    setCleaningSmart((prev) => new Set(prev).add(projectPath));
+    try {
+      const result = await invoke<CleanResult>("clean_project_smart", {
+        projectPath,
+      });
+      setCleanResults((prev) => [...prev.filter((r) => r.path !== projectPath), result]);
+      await scanProjects();
+    } catch (e) {
+      console.error("Failed to smart clean project:", e);
+    }
+    setCleaningSmart((prev) => {
+      const next = new Set(prev);
+      next.delete(projectPath);
+      return next;
+    });
+  };
+
+  const cleanAllProjectsSmart = async () => {
+    setCleaningAllSmart(true);
+    setCleanResults([]);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const projectsToClean = projectsWithTargets.map((p) => p.path);
+    try {
+      const results = await invoke<CleanResult[]>("clean_projects_smart", {
+        projectPaths: projectsToClean,
+      });
+      setCleanResults(results);
+      await scanProjects();
+    } catch (e) {
+      console.error("Failed to smart clean projects:", e);
+    }
+    setCleaningAllSmart(false);
   };
 
   const checkAllOutdated = async () => {
@@ -1083,6 +1125,68 @@ function App() {
     }
   };
 
+  const copyViewToClipboard = async (viewName: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedView(viewName);
+      setTimeout(() => setCopiedView(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  const formatOutdatedResultForClipboard = (result: OutdatedResult) => {
+    const lines = [`Outdated Dependencies for ${result.project_name}:\n`];
+    for (const dep of result.dependencies) {
+      lines.push(`- ${dep.name}: ${dep.current} -> ${dep.latest} (${dep.kind})`);
+    }
+    return lines.join("\n");
+  };
+
+  const formatAuditResultForClipboard = (result: AuditResult) => {
+    const lines = [`Security Audit for ${result.project_name}:\n`];
+    if (result.vulnerabilities.length > 0) {
+      lines.push("Vulnerabilities:");
+      for (const vuln of result.vulnerabilities) {
+        lines.push(`- ${vuln.id}: ${vuln.package}@${vuln.version} — ${vuln.title}`);
+        if (vuln.patched_versions.length > 0) {
+          lines.push(`  Patched in: ${vuln.patched_versions.join(", ")}`);
+        }
+      }
+    }
+    if (result.warnings.length > 0) {
+      lines.push("Warnings:");
+      for (const warn of result.warnings) {
+        lines.push(`- ${warn.package}@${warn.version} (${warn.kind}) — ${warn.title}`);
+      }
+    }
+    return lines.join("\n");
+  };
+
+  const formatAnalysisForClipboard = () => {
+    if (!depAnalysis) return "";
+    const mismatches = depAnalysis.dependencies.filter((d) => d.versions.length > 1);
+    const lines = [`Dependency Analysis (${depAnalysis.total_unique_deps} unique deps, ${depAnalysis.deps_with_mismatches} mismatches):\n`];
+    if (mismatches.length > 0) {
+      lines.push("Version Mismatches:");
+      for (const dep of mismatches) {
+        lines.push(`\n${dep.name} (${dep.project_count} projects):`);
+        for (const v of dep.versions) {
+          lines.push(`- ${v.version}: ${v.projects.join(", ")}`);
+        }
+      }
+    }
+    return lines.join("\n");
+  };
+
+  const formatLicenseResultForClipboard = (result: LicenseResult) => {
+    const lines = [`Licenses for ${result.project_name}:\n`];
+    for (const lic of result.licenses) {
+      lines.push(`- ${lic.name}@${lic.version}: ${lic.license}`);
+    }
+    return lines.join("\n");
+  };
+
   const upgradePackage = async (packageName: string) => {
     if (!selectedProject) return;
     setUpgradingPackage(packageName);
@@ -1202,6 +1306,14 @@ function App() {
     }
   }, [configLoaded, scanRoot]);
 
+  useEffect(() => {
+    if (scanRoot) {
+      invoke<DiskSpaceInfo>("get_disk_space", { path: scanRoot })
+        .then(setDiskSpace)
+        .catch((e) => console.error("Failed to get disk space:", e));
+    }
+  }, [scanRoot, view]);
+
   const filteredAndSortedProjects = useMemo(() => {
     let filtered = projects.filter((p) => {
       // Filter hidden
@@ -1258,6 +1370,16 @@ function App() {
 
   const totalCleanableSize = useMemo(() => {
     return projectsWithTargets.reduce((sum, p) => sum + p.target_size, 0);
+  }, [projectsWithTargets]);
+
+  useEffect(() => {
+    if (projectsWithTargets.length > 0) {
+      invoke<CleanEstimates>("estimate_clean_sizes", {
+        projectPaths: projectsWithTargets.map((p) => p.path),
+      })
+        .then(setCleanEstimates)
+        .catch((e) => console.error("Failed to estimate clean sizes:", e));
+    }
   }, [projectsWithTargets]);
 
   const totalFreed = useMemo(() => {
@@ -1638,6 +1760,42 @@ function App() {
               </span>
             </div>
 
+            {diskSpace && (
+              <div className="disk-space-chart">
+                <div className="disk-space-bar">
+                  <div
+                    className="disk-space-segment used"
+                    style={{
+                      width: `${(((diskSpace.used_bytes - totalCleanableSize) / diskSpace.total_bytes) * 100).toFixed(1)}%`,
+                    }}
+                  />
+                  <div
+                    className="disk-space-segment cargo"
+                    style={{
+                      width: `${((totalCleanableSize / diskSpace.total_bytes) * 100).toFixed(1)}%`,
+                    }}
+                  />
+                </div>
+                <div className="disk-space-legend">
+                  <span className="legend-item">
+                    <span className="legend-dot used" />
+                    Other: {formatBytes(diskSpace.used_bytes - totalCleanableSize)}
+                  </span>
+                  <span className="legend-item">
+                    <span className="legend-dot cargo" />
+                    Cargo builds: {formatBytes(totalCleanableSize)} ({((totalCleanableSize / diskSpace.total_bytes) * 100).toFixed(1)}%)
+                  </span>
+                  <span className="legend-item">
+                    <span className="legend-dot free" />
+                    Free: {formatBytes(diskSpace.free_bytes)}
+                  </span>
+                  <span className="legend-item total">
+                    Total: {formatBytes(diskSpace.total_bytes)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {projectsWithTargets.length === 0 ? (
               <div className="empty-state">
                 <p>No build artifacts to clean</p>
@@ -1664,8 +1822,22 @@ function App() {
                   </button>
                   <button
                     className="secondary"
+                    onClick={() => cleanAllProjectsSmart()}
+                    disabled={cleaningAll || cleaningAllDebug || cleaningAllSmart}
+                  >
+                    {cleaningAllSmart ? (
+                      <>
+                        <GearSpinner size={16} />
+                        Smart Cleaning...
+                      </>
+                    ) : (
+                      `Smart Clean All${cleanEstimates ? ` (${formatBytes(cleanEstimates.smart_total)})` : ""}`
+                    )}
+                  </button>
+                  <button
+                    className="secondary"
                     onClick={() => cleanAllProjects(true)}
-                    disabled={cleaningAll || cleaningAllDebug}
+                    disabled={cleaningAll || cleaningAllDebug || cleaningAllSmart}
                   >
                     {cleaningAllDebug ? (
                       <>
@@ -1673,10 +1845,10 @@ function App() {
                         Cleaning Debug...
                       </>
                     ) : (
-                      "Clean Debug Only"
+                      `Clean Debug Only${cleanEstimates ? ` (${formatBytes(cleanEstimates.debug_total)})` : ""}`
                     )}
                   </button>
-                  <button className="secondary" onClick={() => scanProjects()}>
+                  <button className="secondary" onClick={() => { setCleanResults([]); scanProjects(); }}>
                     Refresh
                   </button>
                 </div>
@@ -1688,8 +1860,12 @@ function App() {
                     );
                     const isCleaningFull = cleaning.has(project.path);
                     const isCleaningDebug = cleaningDebug.has(project.path);
+                    const isCleaningSmrt = cleaningSmart.has(project.path);
                     const isCurrentlyCleaning =
-                      isCleaningFull || isCleaningDebug;
+                      isCleaningFull || isCleaningDebug || isCleaningSmrt;
+                    const estimate = cleanEstimates?.projects.find(
+                      (e) => e.path === project.path,
+                    );
 
                     return (
                       <div key={project.path} className="cleanup-row">
@@ -1698,7 +1874,14 @@ function App() {
                           <span className="cleanup-path">{project.path}</span>
                         </div>
                         <div className="cleanup-size">
-                          {formatBytes(project.target_size)}
+                          <span>{formatBytes(project.target_size)}</span>
+                          {estimate && (estimate.smart > 0 || estimate.debug > 0) && (
+                            <span className="cleanup-size-detail">
+                              {estimate.smart > 0 && `smart ${formatBytes(estimate.smart)}`}
+                              {estimate.smart > 0 && estimate.debug > 0 && " · "}
+                              {estimate.debug > 0 && `debug ${formatBytes(estimate.debug)}`}
+                            </span>
+                          )}
                         </div>
                         <div className="cleanup-actions">
                           {result ? (
@@ -1721,9 +1904,11 @@ function App() {
                           ) : isCurrentlyCleaning ? (
                             <span className="cleanup-progress">
                               <GearSpinner size={16} />
-                              {isCleaningDebug
-                                ? "Cleaning debug..."
-                                : "Cleaning..."}
+                              {isCleaningSmrt
+                                ? "Smart cleaning..."
+                                : isCleaningDebug
+                                  ? "Cleaning debug..."
+                                  : "Cleaning..."}
                             </span>
                           ) : (
                             <>
@@ -1736,9 +1921,18 @@ function App() {
                                     project.target_size,
                                   )
                                 }
-                                disabled={cleaningAll || cleaningAllDebug}
+                                disabled={cleaningAll || cleaningAllDebug || cleaningAllSmart}
                               >
                                 Clean
+                              </button>
+                              <button
+                                className="small secondary"
+                                onClick={() =>
+                                  cleanProjectSmart(project.path)
+                                }
+                                disabled={cleaningAll || cleaningAllDebug || cleaningAllSmart}
+                              >
+                                Smart
                               </button>
                               <button
                                 className="small secondary"
@@ -1749,7 +1943,7 @@ function App() {
                                     project.target_size,
                                   )
                                 }
-                                disabled={cleaningAll || cleaningAllDebug}
+                                disabled={cleaningAll || cleaningAllDebug || cleaningAllSmart}
                               >
                                 Debug
                               </button>
@@ -1838,10 +2032,25 @@ function App() {
                                 Up to date
                               </span>
                             ) : (
-                              <span className="deps-outdated-count">
-                                <Warning size={16} weight="fill" />
-                                {result.dependencies.length} outdated
-                              </span>
+                              <>
+                                <span className="deps-outdated-count">
+                                  <Warning size={16} weight="fill" />
+                                  {result.dependencies.length} outdated
+                                </span>
+                                <button
+                                  className="small secondary"
+                                  onClick={() =>
+                                    copyViewToClipboard(
+                                      `deps-${result.project_path}`,
+                                      formatOutdatedResultForClipboard(result),
+                                    )
+                                  }
+                                >
+                                  {copiedView === `deps-${result.project_path}`
+                                    ? "Copied!"
+                                    : "Copy"}
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -1965,11 +2174,26 @@ function App() {
                                 Secure
                               </span>
                             ) : (
-                              <span className="deps-outdated-count">
-                                <Warning size={16} weight="fill" />
-                                {result.vulnerabilities.length} vulns,{" "}
-                                {result.warnings.length} warnings
-                              </span>
+                              <>
+                                <span className="deps-outdated-count">
+                                  <Warning size={16} weight="fill" />
+                                  {result.vulnerabilities.length} vulns,{" "}
+                                  {result.warnings.length} warnings
+                                </span>
+                                <button
+                                  className="small secondary"
+                                  onClick={() =>
+                                    copyViewToClipboard(
+                                      `audit-${result.project_path}`,
+                                      formatAuditResultForClipboard(result),
+                                    )
+                                  }
+                                >
+                                  {copiedView === `audit-${result.project_path}`
+                                    ? "Copied!"
+                                    : "Copy"}
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -2244,12 +2468,29 @@ function App() {
               depAnalysis && (
                 <>
                   <div className="analysis-section">
-                    <h3>
-                      Version Mismatches ({depAnalysis.deps_with_mismatches})
-                    </h3>
-                    <p className="section-description">
-                      Dependencies with different versions across projects
-                    </p>
+                    <div className="analysis-section-header">
+                      <div>
+                        <h3>
+                          Version Mismatches ({depAnalysis.deps_with_mismatches})
+                        </h3>
+                        <p className="section-description">
+                          Dependencies with different versions across projects
+                        </p>
+                      </div>
+                      {depAnalysis.deps_with_mismatches > 0 && (
+                        <button
+                          className="small secondary"
+                          onClick={() =>
+                            copyViewToClipboard(
+                              "analysis",
+                              formatAnalysisForClipboard(),
+                            )
+                          }
+                        >
+                          {copiedView === "analysis" ? "Copied!" : "Copy"}
+                        </button>
+                      )}
+                    </div>
                     <div className="analysis-list">
                       {depAnalysis.dependencies
                         .filter((d) => d.versions.length > 1)
@@ -2481,6 +2722,19 @@ function App() {
                                   <span className="deps-uptodate">
                                     {result.licenses.length} dependencies
                                   </span>
+                                  <button
+                                    className="small secondary"
+                                    onClick={() =>
+                                      copyViewToClipboard(
+                                        `lic-${result.project_path}`,
+                                        formatLicenseResultForClipboard(result),
+                                      )
+                                    }
+                                  >
+                                    {copiedView === `lic-${result.project_path}`
+                                      ? "Copied!"
+                                      : "Copy"}
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -3799,6 +4053,21 @@ function App() {
                       </>
                     )}
                   </button>
+                  {projectOutdated &&
+                    projectOutdated.success &&
+                    projectOutdated.dependencies.length > 0 && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          copyViewToClipboard(
+                            "detail-deps",
+                            formatOutdatedResultForClipboard(projectOutdated),
+                          )
+                        }
+                      >
+                        {copiedView === "detail-deps" ? "Copied!" : "Copy"}
+                      </button>
+                    )}
                 </div>
                 {(() => {
                   const upgradeEntry = commandHistory.find(
@@ -3942,6 +4211,22 @@ function App() {
                       </>
                     )}
                   </button>
+                  {projectAudit &&
+                    projectAudit.success &&
+                    (projectAudit.vulnerabilities.length > 0 ||
+                      projectAudit.warnings.length > 0) && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          copyViewToClipboard(
+                            "detail-audit",
+                            formatAuditResultForClipboard(projectAudit),
+                          )
+                        }
+                      >
+                        {copiedView === "detail-audit" ? "Copied!" : "Copy"}
+                      </button>
+                    )}
                 </div>
                 {projectAudit ? (
                   projectAudit.success ? (
@@ -4044,6 +4329,23 @@ function App() {
                       </>
                     )}
                   </button>
+                  {projectLicenses &&
+                    projectLicenses.success &&
+                    projectLicenses.licenses.length > 0 && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          copyViewToClipboard(
+                            "detail-licenses",
+                            formatLicenseResultForClipboard(projectLicenses),
+                          )
+                        }
+                      >
+                        {copiedView === "detail-licenses"
+                          ? "Copied!"
+                          : "Copy"}
+                      </button>
+                    )}
                 </div>
                 {projectLicenses ? (
                   projectLicenses.success ? (

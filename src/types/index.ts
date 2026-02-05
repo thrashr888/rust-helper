@@ -48,6 +48,24 @@ export interface CleanResult {
   error: string | null;
 }
 
+export interface ProjectCleanEstimate {
+  path: string;
+  smart: number;
+  debug: number;
+}
+
+export interface CleanEstimates {
+  smart_total: number;
+  debug_total: number;
+  projects: ProjectCleanEstimate[];
+}
+
+export interface DiskSpaceInfo {
+  total_bytes: number;
+  free_bytes: number;
+  used_bytes: number;
+}
+
 // Vulnerability and audit types
 export interface Vulnerability {
   id: string;

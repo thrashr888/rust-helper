@@ -509,6 +509,146 @@ pub fn clean_projects(
         .collect()
 }
 
+#[tauri::command]
+pub fn clean_project_smart(project_path: String) -> CleanResult {
+    let path = PathBuf::from(&project_path);
+    let target_path = path.join("target");
+
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if !target_path.exists() {
+        return CleanResult {
+            path: project_path,
+            name,
+            freed_bytes: 0,
+            success: true,
+            error: None,
+        };
+    }
+
+    let mut freed: u64 = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    // Remove release builds
+    let release_path = target_path.join("release");
+    if release_path.exists() {
+        let size = get_dir_size(&release_path);
+        if let Err(e) = fs::remove_dir_all(&release_path) {
+            errors.push(format!("release: {e}"));
+        } else {
+            freed += size;
+        }
+    }
+
+    // Remove incremental compilation caches
+    let incremental_path = target_path.join("debug").join("incremental");
+    if incremental_path.exists() {
+        let size = get_dir_size(&incremental_path);
+        if let Err(e) = fs::remove_dir_all(&incremental_path) {
+            errors.push(format!("incremental: {e}"));
+        } else {
+            freed += size;
+        }
+    }
+
+    if errors.is_empty() {
+        CleanResult {
+            path: project_path,
+            name,
+            freed_bytes: freed,
+            success: true,
+            error: None,
+        }
+    } else {
+        CleanResult {
+            path: project_path,
+            name,
+            freed_bytes: freed,
+            success: false,
+            error: Some(errors.join("; ")),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn clean_projects_smart(project_paths: Vec<String>) -> Vec<CleanResult> {
+    project_paths
+        .into_iter()
+        .map(clean_project_smart)
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectCleanEstimate {
+    pub path: String,
+    pub smart: u64,
+    pub debug: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanEstimates {
+    pub smart_total: u64,
+    pub debug_total: u64,
+    pub projects: Vec<ProjectCleanEstimate>,
+}
+
+#[tauri::command]
+pub fn estimate_clean_sizes(project_paths: Vec<String>) -> CleanEstimates {
+    let mut smart_total: u64 = 0;
+    let mut debug_total: u64 = 0;
+    let mut projects = Vec::with_capacity(project_paths.len());
+    for p in &project_paths {
+        let target = PathBuf::from(p).join("target");
+        let release_size = get_dir_size(&target.join("release"));
+        let incremental_size = get_dir_size(&target.join("debug").join("incremental"));
+        let debug_size = get_dir_size(&target.join("debug"));
+        let smart = release_size + incremental_size;
+        smart_total += smart;
+        debug_total += debug_size;
+        projects.push(ProjectCleanEstimate {
+            path: p.clone(),
+            smart,
+            debug: debug_size,
+        });
+    }
+    CleanEstimates { smart_total, debug_total, projects }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskSpaceInfo {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub used_bytes: u64,
+}
+
+#[tauri::command]
+pub fn get_disk_space(path: String) -> Result<DiskSpaceInfo, String> {
+    let output = Command::new("df")
+        .args(["-k", &path])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().nth(1).ok_or("No df output")?;
+    let cols: Vec<&str> = line.split_whitespace().collect();
+    if cols.len() < 4 {
+        return Err("Unexpected df output format".to_string());
+    }
+
+    let total_kb: u64 = cols[1].parse().map_err(|_| "Failed to parse total")?;
+    let used_kb: u64 = cols[2].parse().map_err(|_| "Failed to parse used")?;
+    let free_kb: u64 = cols[3].parse().map_err(|_| "Failed to parse free")?;
+
+    Ok(DiskSpaceInfo {
+        total_bytes: total_kb * 1024,
+        free_bytes: free_kb * 1024,
+        used_bytes: used_kb * 1024,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutdatedResult {
     pub project_path: String,

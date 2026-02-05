@@ -1,4 +1,5 @@
-import { Star, Eye, EyeSlash, GithubLogo, GitBranch, Globe } from "@phosphor-icons/react";
+import { Star, Eye, EyeSlash, GithubLogo, GitBranch, Globe, FolderOpen } from "@phosphor-icons/react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Project } from "../types";
 import { formatBytes, formatTimeAgo } from "../utils/formatting";
 
@@ -34,6 +35,16 @@ export function ProjectCard({
           )}
         </h3>
         <div className="card-actions">
+          <button
+            className="icon-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              invoke("open_in_finder", { path: project.path });
+            }}
+            title="Open in Finder"
+          >
+            <FolderOpen size={16} />
+          </button>
           {project.homepage && (
             <a
               href={project.homepage}
