@@ -1,0 +1,69 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DMGs and compute SHA256 sums
+        id: sha
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          curl -sL "https://github.com/thrashr888/rust-helper/releases/download/${TAG_NAME}/Rust.Helper_${VERSION}_aarch64.dmg" -o arm64.dmg
+          curl -sL "https://github.com/thrashr888/rust-helper/releases/download/${TAG_NAME}/Rust.Helper_${VERSION}_x64.dmg" -o x64.dmg
+          echo "arm64=$(sha256sum arm64.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x64=$(sha256sum x64.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          VERSION: ${{ steps.sha.outputs.version }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
+          SHA_X64: ${{ steps.sha.outputs.x64 }}
+        run: |
+          cat > rust-helper.rb << CASK
+          cask "rust-helper" do
+            version "${VERSION}"
+
+            on_arm do
+              sha256 "${SHA_ARM64}"
+              url "https://github.com/thrashr888/rust-helper/releases/download/${TAG_NAME}/Rust.Helper_${VERSION}_aarch64.dmg"
+            end
+            on_intel do
+              sha256 "${SHA_X64}"
+              url "https://github.com/thrashr888/rust-helper/releases/download/${TAG_NAME}/Rust.Helper_${VERSION}_x64.dmg"
+            end
+
+            name "Rust Helper"
+            desc "AI-powered Rust development assistant"
+            homepage "https://github.com/thrashr888/rust-helper"
+            license "MIT"
+
+            depends_on macos: ">= :ventura"
+
+            app "Rust Helper.app"
+
+            zap trash: [
+              "~/Library/Application Support/dev.thrasher.rust-helper",
+              "~/Library/Caches/dev.thrasher.rust-helper",
+            ]
+          end
+          CASK
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/thrashr888/homebrew-tap.git" /tmp/homebrew-tap
+          mkdir -p /tmp/homebrew-tap/Casks
+          cp rust-helper.rb /tmp/homebrew-tap/Casks/rust-helper.rb
+          cd /tmp/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/rust-helper.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update rust-helper to ${TAG_NAME}"
+          git push
