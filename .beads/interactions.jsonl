@@ -1,0 +1,1 @@
+{"id":"int-3981078d","kind":"field_change","created_at":"2026-08-28T01:09:59.956947Z","actor":"Paul Thrasher","issue_id":"rust-helper-8h5.11","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Feature implemented and validated; legacy Clippy cleanup split to rust-helper-8h5.12."}}

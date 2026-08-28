@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Markdown from "react-markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -48,9 +48,10 @@ import type {
   BackgroundJob,
   CleanEstimates,
   DiskSpaceInfo,
+  BuildProcess,
 } from "./types";
 import { formatBytes, formatTimeAgo, formatDuration } from "./utils/formatting";
-import { Sidebar, ProjectCard, GearSpinner } from "./components";
+import { Sidebar, ProjectCard, GearSpinner, BuildProcessMonitor } from "./components";
 
 hljs.registerLanguage("toml", toml);
 import {
@@ -193,6 +194,16 @@ function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
 
+  // System-wide Rust build monitoring
+  const [buildProcesses, setBuildProcesses] = useState<BuildProcess[]>([]);
+  const [buildProcessesLoading, setBuildProcessesLoading] = useState(true);
+  const [buildProcessesRefreshing, setBuildProcessesRefreshing] = useState(false);
+  const [buildProcessError, setBuildProcessError] = useState<string | null>(null);
+  const [buildProcessActionErrors, setBuildProcessActionErrors] = useState<Record<number, string>>({});
+  const [pendingBuildProcessActions, setPendingBuildProcessActions] = useState<Set<number>>(new Set());
+  const [buildProcessesLastUpdated, setBuildProcessesLastUpdated] = useState<number | null>(null);
+  const buildRefreshInFlight = useRef(false);
+
   // Dependency analysis state
   const [depAnalysis, setDepAnalysis] = useState<DepAnalysis | null>(null);
   const [analyzingDeps, setAnalyzingDeps] = useState(false);
@@ -231,6 +242,72 @@ function App() {
 
   const removeJob = (id: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== id));
+  };
+
+  const refreshBuildProcesses = useCallback(async (showRefreshing = true) => {
+    if (buildRefreshInFlight.current) return;
+    buildRefreshInFlight.current = true;
+    if (showRefreshing) setBuildProcessesRefreshing(true);
+
+    try {
+      const activeProcesses = await invoke<BuildProcess[]>("get_build_processes");
+      setBuildProcesses(activeProcesses);
+      setBuildProcessError(null);
+      setBuildProcessesLastUpdated(Date.now());
+    } catch (error) {
+      setBuildProcessError(`Could not read active build processes: ${String(error)}`);
+    } finally {
+      setBuildProcessesLoading(false);
+      setBuildProcessesRefreshing(false);
+      buildRefreshInFlight.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBuildProcesses(false);
+    const interval = window.setInterval(() => {
+      void refreshBuildProcesses(false);
+    }, 2_500);
+    return () => window.clearInterval(interval);
+  }, [refreshBuildProcesses]);
+
+  const runBuildProcessAction = async (
+    process: BuildProcess,
+    action: "stop" | "restart",
+  ) => {
+    const verb = action === "stop" ? "Stop" : "Restart";
+    const target = process.project_name ?? `PID ${process.pid}`;
+    const detail = action === "stop"
+      ? "This will send a termination signal to the process and all of its subprocesses."
+      : "This will stop the current process tree, then launch the same Cargo command again.";
+    if (!window.confirm(`${verb} ${target}?\n\n${detail}`)) return;
+
+    setPendingBuildProcessActions((previous) => new Set(previous).add(process.pid));
+    setBuildProcessActionErrors((previous) => {
+      const next = { ...previous };
+      delete next[process.pid];
+      return next;
+    });
+
+    try {
+      await invoke(`${action}_build_process`, {
+        pid: process.pid,
+        expectedStartTime: process.start_time,
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      await refreshBuildProcesses(false);
+    } catch (error) {
+      setBuildProcessActionErrors((previous) => ({
+        ...previous,
+        [process.pid]: String(error),
+      }));
+    } finally {
+      setPendingBuildProcessActions((previous) => {
+        const next = new Set(previous);
+        next.delete(process.pid);
+        return next;
+      });
+    }
   };
 
   const toggleCommandHistoryCollapse = (id: string) => {
@@ -1453,6 +1530,7 @@ function App() {
         removeJob={removeJob}
         openProjectDetail={openProjectDetail}
         onCancelCargoCommand={handleCancelCargoCommand}
+        buildProcessCount={buildProcesses.length}
       />
 
       <main className="main">
@@ -1558,6 +1636,21 @@ function App() {
               </>
             )}
           </>
+        )}
+
+        {view === "builds" && (
+          <BuildProcessMonitor
+            processes={buildProcesses}
+            loading={buildProcessesLoading}
+            refreshing={buildProcessesRefreshing}
+            error={buildProcessError}
+            actionErrors={buildProcessActionErrors}
+            pendingActions={pendingBuildProcessActions}
+            lastUpdated={buildProcessesLastUpdated}
+            onRefresh={() => void refreshBuildProcesses()}
+            onStop={(process) => void runBuildProcessAction(process, "stop")}
+            onRestart={(process) => void runBuildProcessAction(process, "restart")}
+          />
         )}
 
         {view === "search" && (

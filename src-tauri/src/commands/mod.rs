@@ -51,7 +51,10 @@ pub struct ScanCache {
 }
 
 // Config submodule (after types are defined)
+pub mod build_processes;
 pub mod config;
+
+pub use build_processes::{get_build_processes, restart_build_process, stop_build_process};
 
 // Import config functions from the config submodule
 use config::{get_current_timestamp, load_cache, load_config, save_cache, save_config};
@@ -575,10 +578,7 @@ pub fn clean_project_smart(project_path: String) -> CleanResult {
 
 #[tauri::command]
 pub fn clean_projects_smart(project_paths: Vec<String>) -> Vec<CleanResult> {
-    project_paths
-        .into_iter()
-        .map(clean_project_smart)
-        .collect()
+    project_paths.into_iter().map(clean_project_smart).collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -614,7 +614,11 @@ pub fn estimate_clean_sizes(project_paths: Vec<String>) -> CleanEstimates {
             debug: debug_size,
         });
     }
-    CleanEstimates { smart_total, debug_total, projects }
+    CleanEstimates {
+        smart_total,
+        debug_total,
+        projects,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

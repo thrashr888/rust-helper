@@ -23,7 +23,7 @@ body {
     Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Loading screen */
@@ -31,7 +31,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100dvh;
   background: var(--bg-primary);
 }
 
@@ -66,7 +66,7 @@ body {
 
 .app {
   display: flex;
-  height: 100vh;
+  height: 100dvh;
 }
 
 .sidebar {
@@ -94,6 +94,11 @@ body {
   cursor: pointer;
   color: var(--text-secondary);
   transition: all 0.15s ease;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font-weight: 400;
 }
 
 .nav-item:hover {
@@ -104,6 +109,23 @@ body {
 .nav-item.active {
   background: var(--bg-tertiary);
   color: var(--accent);
+}
+
+.nav-item > span:first-of-type {
+  flex: 1;
+}
+
+.nav-count {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .main {
@@ -1582,10 +1604,293 @@ button svg {
   padding: 5px 12px;
   cursor: pointer;
   border-radius: 4px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: all 0.15s ease;
+}
+
+/* Live build process monitor */
+.build-process-view h2,
+.build-process-view h3 {
+  text-wrap: balance;
+}
+
+.build-process-view .page-description {
+  max-width: 760px;
+  text-wrap: pretty;
+}
+
+.build-process-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.build-process-heading .header-row {
+  margin-bottom: 8px;
+}
+
+.active-build-count,
+.build-process-pid,
+.build-refresh-status,
+.build-process-metrics dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.active-build-count {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.build-refresh-button,
+.build-process-actions button,
+.build-monitor-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.build-refresh-status {
+  margin: -10px 0 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.build-monitor-error,
+.build-action-error {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+}
+
+.build-monitor-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.build-process-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.build-process-card {
+  min-width: 0;
+  padding: 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.build-process-card-header,
+.build-process-title-group,
+.build-process-actions,
+.build-process-path,
+.build-process-metrics dt {
+  display: flex;
+  align-items: center;
+}
+
+.build-process-card-header {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.build-process-title-group {
+  min-width: 0;
+  gap: 10px;
+}
+
+.build-process-title-group h3 {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-process-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  color: var(--accent);
+  background: rgba(245, 158, 11, 0.12);
+  border-radius: 7px;
+}
+
+.build-process-pid {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.build-phase {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  color: var(--success);
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.build-process-command {
+  display: block;
+  overflow: hidden;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-process-path {
+  min-width: 0;
+  gap: 7px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.build-process-path svg {
+  flex-shrink: 0;
+}
+
+.build-process-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-process-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 0;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.build-process-metrics dt {
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.build-process-metrics dd {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-process-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+button.danger {
+  color: #fff;
+  background: var(--error);
+}
+
+button.danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.build-action-error {
+  padding: 8px 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  text-wrap: pretty;
+}
+
+.build-empty-state svg {
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+}
+
+.build-empty-state h3 {
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.build-process-skeleton {
+  min-height: 210px;
+}
+
+.skeleton-line {
+  height: 14px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.skeleton-heading {
+  width: 42%;
+  height: 20px;
+  margin-bottom: 18px;
+}
+
+.skeleton-command {
+  width: 100%;
+  height: 38px;
+  margin-bottom: 26px;
+}
+
+.skeleton-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .build-process-heading {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .build-refresh-button {
+    margin-bottom: 16px;
+  }
+
+  .build-process-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .nav-favorite-item:hover {

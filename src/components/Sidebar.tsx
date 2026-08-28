@@ -10,6 +10,7 @@ import {
   Scroll,
   MagnifyingGlass,
   X,
+  Hammer,
 } from "@phosphor-icons/react";
 import type { View, Project, BackgroundJob } from "../types";
 import { GearSpinner } from "./GearSpinner";
@@ -23,10 +24,12 @@ interface SidebarProps {
   removeJob: (id: string) => void;
   openProjectDetail: (project: Project) => void;
   onCancelCargoCommand: () => void;
+  buildProcessCount: number;
 }
 
 const navItems: { id: View; label: string; icon: React.ComponentType<{ size: number }> }[] = [
   { id: "projects", label: "Projects", icon: Folder },
+  { id: "builds", label: "Builds", icon: Hammer },
   { id: "search", label: "Search", icon: MagnifyingGlass },
   { id: "cleanup", label: "Cleanup", icon: Broom },
   { id: "dependencies", label: "Dependencies", icon: Package },
@@ -46,25 +49,34 @@ export function Sidebar({
   removeJob,
   openProjectDetail,
   onCancelCargoCommand,
+  buildProcessCount,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
       <nav>
         {navItems.map(({ id, label, icon: Icon }) => (
           <div key={id}>
-            <div
+            <button
+              type="button"
               className={`nav-item ${view === id ? "active" : ""}`}
               onClick={() => setView(id)}
+              aria-current={view === id ? "page" : undefined}
             >
               <Icon size={20} />
-              {label}
-            </div>
+              <span>{label}</span>
+              {id === "builds" && buildProcessCount > 0 ? (
+                <span className="nav-count" aria-label={`${buildProcessCount} active builds`}>
+                  {buildProcessCount}
+                </span>
+              ) : null}
+            </button>
             {id === "projects" && favorites.size > 0 && (
               <div className="nav-favorites">
                 {projects
                   .filter((p) => favorites.has(p.path))
                   .map((project) => (
-                    <div
+                    <button
+                      type="button"
                       key={project.path}
                       className="nav-favorite-item"
                       onClick={() => openProjectDetail(project)}
@@ -72,7 +84,7 @@ export function Sidebar({
                     >
                       <Star size={12} weight="fill" />
                       {project.name}
-                    </div>
+                    </button>
                   ))}
               </div>
             )}
@@ -98,6 +110,7 @@ export function Sidebar({
                   }
                 }}
                 title="Cancel"
+                aria-label={`Cancel ${job.label}`}
               >
                 <X size={12} />
               </button>

@@ -1,6 +1,7 @@
 // View and navigation types
 export type View =
   | "projects"
+  | "builds"
   | "search"
   | "cleanup"
   | "dependencies"
@@ -116,6 +117,24 @@ export interface CommandHistoryEntry {
   exitCode: number | null;
   output: string[];
   isCollapsed: boolean;
+}
+
+export interface BuildProcess {
+  pid: number;
+  parent_pid: number | null;
+  process_name: string;
+  command: string;
+  cargo_command: string | null;
+  working_directory: string | null;
+  project_name: string | null;
+  phase: string;
+  state: string;
+  elapsed_seconds: number;
+  cpu_percent: number;
+  memory_percent: number;
+  child_count: number;
+  start_time: number;
+  restartable: boolean;
 }
 
 // Dependency types
