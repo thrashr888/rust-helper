@@ -347,7 +347,7 @@ fn scan_projects_sync(root_path: &str) -> Vec<Project> {
     }
 
     // Sort by name by default
-    projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    projects.sort_by_key(|project| project.name.to_lowercase());
 
     projects
 }
@@ -1270,13 +1270,13 @@ fn analyze_dependencies_sync(project_paths: Vec<String>) -> DepAnalysis {
                 // Collect all dependencies
                 let mut all_deps = Vec::new();
                 if let Some(deps) = cargo.dependencies {
-                    all_deps.extend(deps.into_iter());
+                    all_deps.extend(deps);
                 }
                 if let Some(deps) = cargo.dev_dependencies {
-                    all_deps.extend(deps.into_iter());
+                    all_deps.extend(deps);
                 }
                 if let Some(deps) = cargo.build_dependencies {
-                    all_deps.extend(deps.into_iter());
+                    all_deps.extend(deps);
                 }
 
                 for (name, value) in all_deps {
@@ -1311,7 +1311,7 @@ fn analyze_dependencies_sync(project_paths: Vec<String>) -> DepAnalysis {
         .collect();
 
     // Sort by usage count (most used first)
-    dependencies.sort_by(|a, b| b.project_count.cmp(&a.project_count));
+    dependencies.sort_by_key(|dependency| std::cmp::Reverse(dependency.project_count));
 
     let total_unique_deps = dependencies.len();
     let deps_with_mismatches = dependencies.iter().filter(|d| d.versions.len() > 1).count();
@@ -1622,13 +1622,13 @@ fn analyze_toolchains_sync(project_paths: Vec<String>) -> ToolchainAnalysis {
         .into_iter()
         .map(|(version, projects)| ToolchainGroup { version, projects })
         .collect();
-    toolchain_groups.sort_by(|a, b| b.projects.len().cmp(&a.projects.len()));
+    toolchain_groups.sort_by_key(|group| std::cmp::Reverse(group.projects.len()));
 
     let mut msrv_groups: Vec<ToolchainGroup> = msrv_map
         .into_iter()
         .map(|(version, projects)| ToolchainGroup { version, projects })
         .collect();
-    msrv_groups.sort_by(|a, b| b.projects.len().cmp(&a.projects.len()));
+    msrv_groups.sort_by_key(|group| std::cmp::Reverse(group.projects.len()));
 
     let has_mismatches = toolchain_groups.len() > 1 || msrv_groups.len() > 1;
 
