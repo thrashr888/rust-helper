@@ -1,6 +1,6 @@
 [package]
 name = "rust-helper"
-version = "0.3.1"
+version = "0.4.0"
 description = "Multi-project Rust management app"
 authors = ["Paul Thrasher"]
 license = "MIT"
